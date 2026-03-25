@@ -1,0 +1,24 @@
+--- node_modules/playwright-core/lib/server/chromium/crBrowser.js
++++ node_modules/playwright-core/lib/server/chromium/crBrowser.js
+@@ -96,6 +96,21 @@
+       browser._defaultContext._initialize()
+     ]);
+     await browser._waitForAllPagesToBeInitialized();
++    // web-plane: transition from DYLD miniaturize to CDP-managed offscreen state
++    const startMinimized = options.originalLaunchOptions?.args?.includes?.("--start-minimized") && options.headful;
++    if (startMinimized) {
++      try {
++        require("child_process").execSync("rm -f /tmp/.chrome-suppress-*", { stdio: "ignore" });
++        await new Promise(r => setTimeout(r, 100));
++        const targets = await session.send("Target.getTargets");
++        const pageTarget = targets.targetInfos?.find((t) => t.type === "page");
++        if (pageTarget) {
++          const win = await session.send("Browser.getWindowForTarget", { targetId: pageTarget.targetId });
++          await session.send("Browser.setWindowBounds", { windowId: win.windowId, bounds: { windowState: "normal" } });
++          await session.send("Browser.setWindowBounds", { windowId: win.windowId, bounds: { left: -9999, top: -9999, width: 800, height: 600 } });
++        }
++      } catch {}
++    }
+     return browser;
+   }
+   async doCreateNewContext(options) {

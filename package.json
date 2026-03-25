@@ -1,0 +1,38 @@
+{
+  "name": "web-plane",
+  "version": "0.1.0",
+  "description": "The web control plane for AI agents. Real Chrome, zero flash, Cloudflare-proof.",
+  "type": "module",
+  "bin": {
+    "web-plane": "./bin/web-plane.js"
+  },
+  "scripts": {
+    "postinstall": "echo 'Run: web-plane install'"
+  },
+  "keywords": [
+    "browser",
+    "automation",
+    "ai",
+    "agent",
+    "chrome",
+    "cloudflare",
+    "playwright",
+    "cui",
+    "web"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin"
+  ],
+  "files": [
+    "bin/",
+    "lib/",
+    "native/",
+    "patches/",
+    "README.md",
+    "LICENSE"
+  ]
+}

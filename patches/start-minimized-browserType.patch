@@ -1,0 +1,29 @@
+--- node_modules/playwright-core/lib/server/browserType.js
++++ node_modules/playwright-core/lib/server/browserType.js
+@@ -196,10 +196,23 @@
+     let transport = void 0;
+     let browserProcess = void 0;
+     const exitPromise = new import_manualPromise.ManualPromise();
+-    const { launchedProcess, gracefullyClose, kill } = await (0, import_processLauncher.launchProcess)({
+-      command: prepared.executable,
++    // web-plane: DYLD injection for zero-flash headed Chrome on macOS
++    let _launchEnv = this.amendEnvironment(env, prepared.userDataDir, isPersistent, options);
++    let _launchCmd = prepared.executable;
++    if (options.args?.includes?.("--start-minimized") && !options.headless && process.platform === "darwin") {
++      const _path = require("path");
++      const _fs = require("fs");
++      const _dylibPath = _path.join(require("os").homedir(), ".web-plane", "window_suppress.dylib");
++      const _resignedChrome = _path.join(require("os").homedir(), ".web-plane", "Chrome.app", "Contents", "MacOS", "Google Chrome");
++      if (_fs.existsSync(_dylibPath) && _fs.existsSync(_resignedChrome)) {
++        _launchCmd = _resignedChrome;
++        _launchEnv = { ..._launchEnv, DYLD_INSERT_LIBRARIES: _dylibPath };
++      }
++    }
++    const { launchedProcess, gracefullyClose, kill } = await (0, import_processLauncher.launchProcess)({
++      command: _launchCmd,
+       args: prepared.browserArguments,
+-      env: this.amendEnvironment(env, prepared.userDataDir, isPersistent, options),
++      env: _launchEnv,
+       handleSIGINT,
+       handleSIGTERM,
+       handleSIGHUP,

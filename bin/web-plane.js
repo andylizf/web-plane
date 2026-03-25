@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
+
+// Parse global flags (before command) and command + command args
+const rawArgs = process.argv.slice(2);
+
+// Our custom commands (not proxied to playwright-cli)
+const CUSTOM_COMMANDS = new Set(['install', 'show', 'hide', 'toggle', 'status']);
+
+// Find the command: first non-flag argument
+let commandIndex = -1;
+let command = null;
+for (let i = 0; i < rawArgs.length; i++) {
+  const arg = rawArgs[i];
+  // Skip flags and their values
+  if (arg.startsWith('-')) {
+    // -s=deep (flag with =) — no skip
+    // -s deep (flag with space value) — skip next
+    if (!arg.includes('=') && i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith('-')) {
+      i++; // skip value
+    }
+    continue;
+  }
+  command = arg;
+  commandIndex = i;
+  break;
+}
+
+const globalArgs = commandIndex > 0 ? rawArgs.slice(0, commandIndex) : [];
+const commandArgs = commandIndex >= 0 ? rawArgs.slice(commandIndex + 1) : [];
+
+// Handle --help and --version
+if (!command || rawArgs.includes('--help') || rawArgs.includes('-h')) {
+  console.log(`web-plane v${pkg.version} — ${pkg.description}
+
+Usage: web-plane [flags] <command> [args]
+
+Setup:
+  install                 One-time setup (clone Chrome, compile DYLD hook, patch playwright)
+
+Browser control (proxied to playwright-cli):
+  open <url>              Open URL (auto-injects --headed, --profile, --config)
+  goto <url>              Navigate to URL
+  snapshot                Accessibility tree with element refs (e1, e2...)
+  screenshot [path]       Capture page as PNG
+  click <ref>             Click element by ref
+  fill <ref> <text>       Clear and fill input
+  type <text>             Type into focused element
+  press <key>             Press keyboard key
+  hover <ref>             Hover over element
+  eval <js>               Execute JavaScript
+  close                   Close browser session
+  ...                     All other playwright-cli commands are supported
+
+Window management:
+  show                    Make browser window visible
+  hide                    Make window invisible (screenshots still work)
+  toggle                  Toggle window visibility
+  status                  Show browser status (PID, visibility, session)
+
+Flags:
+  -s=<name>               Named session (persistent across commands)
+  --profile <path>        Browser profile directory (default: ~/.web-plane/profiles/<session>)
+  --help, -h              Show this help
+  --version, -v           Show version
+
+Examples:
+  web-plane install
+  web-plane open https://chatgpt.com
+  web-plane -s=research open https://example.com
+  web-plane -s=research snapshot
+  web-plane -s=research click e3
+  web-plane hide
+  web-plane show`);
+  process.exit(0);
+}
+
+if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+  console.log(pkg.version);
+  process.exit(0);
+}
+
+// Dispatch
+if (command === 'install') {
+  const { install } = await import('../lib/install.js');
+  await install();
+} else if (command === 'show' || command === 'hide' || command === 'toggle') {
+  const { windowControl } = await import('../lib/window.js');
+  await windowControl(command);
+} else if (command === 'status') {
+  const { getStatus } = await import('../lib/window.js');
+  const s = getStatus();
+  if (s.running) {
+    console.log(`Chrome PID:    ${s.pid}`);
+    console.log(`CDP port:      ${s.port}`);
+    console.log(`Window:        ${s.hidden ? 'hidden' : 'visible'}`);
+  } else {
+    console.log('No browser session running.');
+  }
+} else {
+  // Proxy to playwright-cli
+  const { runCommand } = await import('../lib/commands.js');
+  runCommand(command, globalArgs, commandArgs);
+}
