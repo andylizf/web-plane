@@ -12,7 +12,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'show', 'hide', 'toggle', 'status']);
+const CUSTOM_COMMANDS = new Set(['install', 'show', 'hide', 'toggle', 'status', 'cdp']);
 
 // Find the command: first non-flag argument
 let commandIndex = -1;
@@ -65,6 +65,10 @@ Window management:
   toggle                  Toggle window visibility
   status                  Show browser status (PID, visibility, session)
 
+Integration (drive with agent-browser):
+  cdp                     Start/reuse a hidden session and print its CDP port
+                          plus a ready 'agent-browser connect <port>' line
+
 Flags:
   -s=<name>               Named session (persistent across commands)
   --profile <path>        Browser profile directory (default: ~/.web-plane/profiles/<session>)
@@ -78,7 +82,8 @@ Examples:
   web-plane -s=research snapshot
   web-plane -s=research click e3
   web-plane hide
-  web-plane show`);
+  web-plane show
+  web-plane cdp                     # then: agent-browser connect <port>`);
   process.exit(0);
 }
 
@@ -104,6 +109,15 @@ if (command === 'install') {
   } else {
     console.log('No browser session running.');
   }
+} else if (command === 'cdp') {
+  const { cdp } = await import('../lib/cdp.js');
+  let session = null;
+  for (let i = 0; i < rawArgs.length; i++) {
+    const a = rawArgs[i];
+    if (a.startsWith('-s=')) session = a.slice(3);
+    else if (a === '-s' && rawArgs[i + 1]) session = rawArgs[++i];
+  }
+  await cdp(session);
 } else {
   // Proxy to playwright-cli
   const { runCommand } = await import('../lib/commands.js');

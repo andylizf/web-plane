@@ -77,6 +77,26 @@ All playwright-cli commands are supported. web-plane auto-injects `--headed`, `-
 | Platform | macOS (Linux planned) | macOS, Linux, Windows |
 | Runtime | Node.js + playwright-cli | Rust binary |
 
+## Use *with* agent-browser
+
+The table frames them as alternatives, but they compose cleanly: let
+agent-browser do the operating and web-plane do the disguising. `web-plane cdp`
+starts (or reuses) a hidden stealth session and prints its CDP port; agent-browser
+attaches over CDP and drives it — `webdriver=false` and all — without a window
+stealing focus.
+
+```bash
+web-plane cdp                     # prints: Session / CDP port / Attach: agent-browser connect <port>
+agent-browser connect <port>      # drive with agent-browser from here on
+agent-browser goto https://chatgpt.com
+web-plane hide                    # invisible; agent-browser keeps driving
+```
+
+web-plane keeps `show`/`hide`/`status`/`close`; agent-browser owns page
+operations. The CDP port is auto-assigned — read it from `cdp` output rather than
+hardcoding. See [`SKILL.md`](SKILL.md) for the full agent-facing guide, and
+`scripts/smoke.sh` to verify the chain end to end.
+
 ## Architecture
 
 ```

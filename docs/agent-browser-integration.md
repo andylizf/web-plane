@@ -66,14 +66,17 @@ Behavior:
    Attach:   agent-browser connect <N>
    ```
 
-Port strategy:
+Port strategy (settled during implementation):
 
-- **MVP:** let playwright-cli pick the port (random, as today) and print it. Zero new
-  launch plumbing.
-- **Optional (`--port <N>`):** inject `--remote-debugging-port=<N>` into the Chrome launch
-  args for a predictable port that a SKILL.md can hardcode. Implementation must confirm how
-  playwright-cli forwards an extra Chrome flag (temporary config override vs CLI passthrough)
-  and error clearly if `<N>` is already bound by another session.
+- The port is **auto-assigned by playwright-cli** and printed. `cdp` resolves it by
+  matching the session's `--user-data-dir` to the running Chrome process (exact match, to
+  avoid `agtest` vs `agtest2` prefix collisions).
+- A `--port <N>` option was prototyped and **rejected**: playwright-cli always appends its
+  own `--remote-debugging-port`, so an injected fixed port becomes a duplicate flag and
+  Chrome binds playwright's port, not the requested one. Verified — `--port 9333` yielded a
+  process carrying both `--remote-debugging-port=9333` and `=50261`, actually listening on
+  50261, so `agent-browser connect 9333` failed. Callers read the port from `cdp` output
+  instead of hardcoding.
 
 web-plane keeps ownership of `show` / `hide` / `status` / `close`; agent-browser owns all
 page operations. No operation logic is duplicated.
