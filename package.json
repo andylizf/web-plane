@@ -6,9 +6,6 @@
   "bin": {
     "web-plane": "./bin/web-plane.js"
   },
-  "scripts": {
-    "postinstall": "echo 'Run: web-plane install'"
-  },
   "keywords": [
     "browser",
     "automation",
