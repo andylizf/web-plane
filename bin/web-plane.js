@@ -36,6 +36,14 @@ for (let i = 0; i < rawArgs.length; i++) {
 const globalArgs = commandIndex > 0 ? rawArgs.slice(0, commandIndex) : [];
 const commandArgs = commandIndex >= 0 ? rawArgs.slice(commandIndex + 1) : [];
 
+function parseSessionFlag(args) {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i].startsWith('-s=')) return args[i].slice(3);
+    if (args[i] === '-s' && i + 1 < args.length) return args[i + 1];
+  }
+  return null;
+}
+
 // Handle --help and --version
 if (!command || rawArgs.includes('--help') || rawArgs.includes('-h')) {
   console.log(`web-plane v${pkg.version} — ${pkg.description}
@@ -98,11 +106,12 @@ if (command === 'install') {
   await install();
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
-  await windowControl(command);
+  await windowControl(command, parseSessionFlag(rawArgs));
 } else if (command === 'status') {
   const { getStatus } = await import('../lib/window.js');
-  const s = getStatus();
+  const s = getStatus(parseSessionFlag(rawArgs));
   if (s.running) {
+    console.log(`Session:       ${s.session ?? '(unnamed)'}`);
     console.log(`Chrome PID:    ${s.pid}`);
     console.log(`CDP port:      ${s.port}`);
     console.log(`Window:        ${s.hidden ? 'hidden' : 'visible'}`);
