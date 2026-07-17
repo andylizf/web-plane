@@ -65,11 +65,14 @@ static void handleSIGUSR2(int sig) {
 
 __attribute__((constructor))
 static void init(void) {
-    // Create signal file immediately
-    snprintf(signalPath, sizeof(signalPath), "/tmp/.chrome-suppress-%d", getpid());
+    // Populate signalPath AND hiddenPath. Must go through initPaths(), not a
+    // bare snprintf: setting `initialized = YES` after filling only signalPath
+    // would leave hiddenPath empty forever (initPaths early-returns once the
+    // flag is set), so isHidden() could never see the hidden marker.
+    initPaths();
+    // Create suppress file immediately (launch-time window suppression).
     FILE *f = fopen(signalPath, "w");
     if (f) fclose(f);
-    initialized = YES;
 
     // Register signal handlers for post-launch hide/show
     signal(SIGUSR1, handleSIGUSR1);
@@ -110,16 +113,46 @@ static void init(void) {
     // Cloak at the ordering primitive: window.open popups (and other windows)
     // become visible through orderWindow:relativeTo: without ever calling the
     // three high-level methods hooked above, so the standing-hidden check must
-    // live here to catch every path onto the screen.
+    // live here to catch every path onto the screen. Cloak BEFORE the original
+    // runs too, so the window is already transparent+offscreen the instant it
+    // is ordered in — otherwise there's a one-frame flash before we react.
     {
         SEL sel = @selector(orderWindow:relativeTo:);
         Method m = class_getInstanceMethod(cls, sel);
         IMP origIMP = method_getImplementation(m);
         method_setImplementation(m, imp_implementationWithBlock(
             ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
+                BOOL hide = (place != NSWindowOut) && isHidden();
+                if (hide) cloak(self);
                 ((void(*)(id, SEL, NSWindowOrderingMode, NSInteger))origIMP)(self, sel, place, otherWin);
-                if (place != NSWindowOut && isHidden()) cloak(self);
+                if (hide) cloak(self);
             }));
+    }
+    // Continuous enforcement while hidden. Method swizzling alone can't hold a
+    // window hidden: Chrome's windows are an NSWindow *subclass* that overrides
+    // setAlphaValue:/setFrame:, so their own calls bypass a base-class swizzle,
+    // and after a popup's page loads Chrome re-runs layout and sets alpha back to
+    // 1 at a position onscreen. Instead, re-assert the cloak on a fast timer:
+    // setAlphaValue: itself does work on Chrome windows (the main window's
+    // hide/show rely on it), so re-applying alpha 0 + offscreen every tick wins
+    // the race against Chrome's relayout. Idle when not hidden (just a flag read).
+    {
+        // Defer scheduling to when the main queue first drains (proven to run
+        // under Chrome's pump — the SIGUSR handlers use it), then install a
+        // repeating NSTimer in the common run-loop modes so it keeps firing
+        // through Chrome's CFRunLoop. A bare dispatch-source timer on the main
+        // queue does not fire reliably inside Chrome's message pump.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSTimer *t = [NSTimer timerWithTimeInterval:0.016 repeats:YES block:^(NSTimer *_t) {
+                if (!isHidden()) return;
+                for (NSWindow *w in [NSApp windows]) {
+                    if ([w alphaValue] > 0.0) [w setAlphaValue:0.0];
+                    NSPoint o = [w frame].origin;
+                    if (o.x > -9000 || o.y > -9000) [w setFrameOrigin:NSMakePoint(-9999, -9999)];
+                }
+            }];
+            [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
+        });
     }
     // Block activation while suppressing
     {
