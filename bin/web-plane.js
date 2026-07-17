@@ -109,12 +109,12 @@ if (command === 'install') {
   await windowControl(command, parseSessionFlag(rawArgs));
 } else if (command === 'status') {
   const { getStatus } = await import('../lib/window.js');
-  const s = getStatus(parseSessionFlag(rawArgs));
+  const s = await getStatus(parseSessionFlag(rawArgs));
   if (s.running) {
     console.log(`Session:       ${s.session ?? '(unnamed)'}`);
     console.log(`Chrome PID:    ${s.pid}`);
     console.log(`CDP port:      ${s.port}`);
-    console.log(`Window:        ${s.hidden ? 'hidden' : 'visible'}`);
+    console.log(`Window:        ${s.hidden ? 'hidden' : s.minimized ? 'minimized' : 'visible'}`);
   } else {
     console.log('No browser session running.');
   }
