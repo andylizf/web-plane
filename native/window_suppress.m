@@ -14,14 +14,36 @@
 #include <signal.h>
 
 static char signalPath[256];
+static char hiddenPath[256];
 static BOOL initialized = NO;
 
-static BOOL shouldSuppress(void) {
+static void initPaths(void) {
     if (!initialized) {
         snprintf(signalPath, sizeof(signalPath), "/tmp/.chrome-suppress-%d", getpid());
+        snprintf(hiddenPath, sizeof(hiddenPath), "/tmp/.chrome-hidden-%d", getpid());
         initialized = YES;
     }
+}
+
+static BOOL shouldSuppress(void) {
+    initPaths();
     return access(signalPath, F_OK) == 0;
+}
+
+// Standing-hidden flag, written by `web-plane hide` and removed by `show`.
+// While it exists, windows may order front normally (so Chrome's internal
+// bookkeeping stays truthful — replacing orderFront with miniaturize desyncs
+// it and Chrome then ignores all CDP bounds commands), but they are cloaked
+// right after: transparent and parked offscreen. Both are cosmetic operations
+// AppKit reports honestly, so no state ever diverges.
+static BOOL isHidden(void) {
+    initPaths();
+    return access(hiddenPath, F_OK) == 0;
+}
+
+static void cloak(NSWindow *w) {
+    [w setAlphaValue:0.0];
+    [w setFrameOrigin:NSMakePoint(-9999, -9999)];
 }
 
 // Signal handlers — dispatch to main thread for AppKit safety
@@ -71,6 +93,7 @@ static void init(void) {
                     return;
                 }
                 ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
+                if (isHidden()) cloak(self);
             });
         } else {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
@@ -79,9 +102,24 @@ static void init(void) {
                     return;
                 }
                 ((void(*)(id, SEL))origIMP)(self, sel);
+                if (isHidden()) cloak(self);
             });
         }
         method_setImplementation(m, newIMP);
+    }
+    // Cloak at the ordering primitive: window.open popups (and other windows)
+    // become visible through orderWindow:relativeTo: without ever calling the
+    // three high-level methods hooked above, so the standing-hidden check must
+    // live here to catch every path onto the screen.
+    {
+        SEL sel = @selector(orderWindow:relativeTo:);
+        Method m = class_getInstanceMethod(cls, sel);
+        IMP origIMP = method_getImplementation(m);
+        method_setImplementation(m, imp_implementationWithBlock(
+            ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
+                ((void(*)(id, SEL, NSWindowOrderingMode, NSInteger))origIMP)(self, sel, place, otherWin);
+                if (place != NSWindowOut && isHidden()) cloak(self);
+            }));
     }
     // Block activation while suppressing
     {
@@ -90,7 +128,8 @@ static void init(void) {
         Method m = class_getInstanceMethod(appCls, sel);
         IMP origIMP = method_getImplementation(m);
         method_setImplementation(m, imp_implementationWithBlock(^(NSApplication *self, BOOL flag) {
-            if (shouldSuppress()) return;
+            // A hidden session must never steal focus either.
+            if (shouldSuppress() || isHidden()) return;
             ((void(*)(id, SEL, BOOL))origIMP)(self, sel, flag);
         }));
     }
