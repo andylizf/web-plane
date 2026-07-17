@@ -27,12 +27,14 @@ The browser is headed (not headless), renders to a real GPU surface, and maintai
 
 ## Install
 
+Not published to npm — install straight from the repo:
+
 ```bash
-npm install -g web-plane
+npm install -g github:andylizf/web-plane
 web-plane install
 ```
 
-`web-plane install` clones Chrome, compiles the native DYLD hook, patches playwright-cli, and sets everything up under `~/.web-plane/`. Idempotent — re-run after Chrome updates.
+`web-plane install` clones Chrome, compiles the native DYLD hook, patches playwright-cli, and sets everything up under `~/.web-plane/`. Idempotent — re-run after Chrome updates. (A background Chrome update can re-sign the clone and break DYLD injection; the next hidden launch detects that and re-applies the ad-hoc signature automatically, so re-running `install` is only needed to pick up a new Chrome version.)
 
 Requires: macOS, Google Chrome, Node.js >= 18, Xcode Command Line Tools.
 
