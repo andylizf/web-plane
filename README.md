@@ -38,6 +38,28 @@ web-plane install
 
 Requires: macOS, Google Chrome, Node.js >= 18, Xcode Command Line Tools.
 
+### The `browser` skill (Claude Code)
+
+This repo is also a Claude Code **plugin marketplace**. The `browser` skill — which tells agents to reach for web-plane by default and routes across fast/cloak/cloud/computer-use — installs the canonical way, not by copying files:
+
+```bash
+claude plugin marketplace add andylizf/web-plane
+claude plugin install browser@web-plane --scope user
+```
+
+Or interactively inside Claude Code: `/plugin marketplace add andylizf/web-plane` then `/plugin install browser@web-plane`. For a headless / cloud session, declare it in `~/.claude/settings.json` instead:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "web-plane": { "source": { "source": "github", "repo": "andylizf/web-plane" } }
+  },
+  "enabledPlugins": ["browser@web-plane"]
+}
+```
+
+That's the whole procedure — a brand-new machine gets the CLI + runtime from the two commands above, and the skill from the plugin. Nothing is copied between machines.
+
 ## Usage
 
 ```bash

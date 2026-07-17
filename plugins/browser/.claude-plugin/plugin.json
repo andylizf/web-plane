@@ -1,0 +1,8 @@
+{
+  "name": "browser",
+  "description": "Drive a web browser to accomplish a task — logging in, filling forms, scraping behind auth, operating a page a plain fetch can't reach. Defaults to web-plane stealth (real Chrome, webdriver=false, zero-flash hidden window) and routes to fast/cloak/cloud/computer-use when they fit. You are the driver — it does not wrap another AI.",
+  "version": "0.1.0",
+  "author": {
+    "name": "andylizf"
+  }
+}
