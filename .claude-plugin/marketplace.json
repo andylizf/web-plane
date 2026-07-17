@@ -1,0 +1,20 @@
+{
+  "name": "web-plane",
+  "owner": {
+    "name": "andylizf"
+  },
+  "metadata": {
+    "description": "web-plane's Claude Code plugins — the browser skill that makes web-plane the default browser method for agents."
+  },
+  "plugins": [
+    {
+      "name": "browser",
+      "source": "./plugins/browser",
+      "description": "Drive a real browser the right way: web-plane stealth by default, with a decision tree over fast/cloak/cloud/computer-use. Installs the `browser` skill.",
+      "version": "0.1.0",
+      "author": {
+        "name": "andylizf"
+      }
+    }
+  ]
+}
