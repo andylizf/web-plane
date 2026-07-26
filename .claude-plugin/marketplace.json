@@ -11,7 +11,7 @@
       "name": "browser",
       "source": "./plugins/browser",
       "description": "Drive a real browser the right way: web-plane stealth by default, with a decision tree over fast/cloak/cloud/computer-use. Installs the `browser` skill.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "andylizf"
       }
