@@ -59,32 +59,58 @@ Local by default. Reach for the cloud only when you need scale a laptop can't gi
 These concerns are shared, so handle them the same way regardless of method — the
 per-method references only cover what's unique to them.
 
-### Login profile — pick the right identity
-Every CDP method runs Chrome against a `--user-data-dir` profile (web-plane exposes it as
-`-s=<name>`). A profile *is* a login identity: its cookies, tokens, and fingerprint.
-- **One stable identity = one profile.** Reuse it so you don't re-login every time.
-- **Don't mix unrelated accounts in one profile** — it tangles login state and lets a site
-  correlate them as the same person. When unsure, separate.
-- **Don't spin up a fresh profile per throwaway task** — each is a full Chrome profile (tens
-  of MB) and its login expires. Use one shared scratch profile for login-less one-offs.
-- Name profiles by identity, not task: `-s=cscse`, `-s=qqdocs`, not `-s=print-thing`.
+### Profile and lane — the identity, and your seat inside it
+Two separate axes, and confusing them is the single most common way this goes wrong.
 
-### Attaching — the connect pattern
-The kernel and the hands are separate processes joined by a CDP port. Always: start/reuse
-the kernel, get its port, attach agent-browser.
-```
-web-plane -s=<name> cdp        # prints: Attach: agent-browser connect <port>
-agent-browser connect <port>
-```
-The port is auto-assigned — read it from the command's output, never hardcode it.
+**Profile (`-s=<name>`)** is the *login identity* — a `--user-data-dir` holding cookies,
+tokens, and fingerprint. Chrome runs exactly one process per profile, so everyone on a
+profile shares one browser.
+- **Default to the user's one main profile.** A second profile holding the same account is
+  a second device to that site: it re-triggers new-device checks and splits your logins
+  across places you then have to log into again.
+- Reach for a separate profile only for a genuinely separate identity — a different
+  account on the same site, or work you want uncorrelated.
+- Name by identity, never by task: `-s=main`, `-s=work-alt`; not `-s=print-thing`.
+- Never spin up a throwaway profile per task. It starts logged out and never gets cleaned up.
 
-### Selecting the tab
-Attaching to a session that already has tabs lands you on *some* existing target, not
-necessarily the one you want. Check and pick:
+**Lane (`--as <name>`)** is *your seat* in that shared browser: one agent-browser daemon
+plus one labelled tab. Concurrent agents = same `-s`, different `--as`.
+
+### Attaching — one command
 ```
-agent-browser tab list
-agent-browser tab <n>
+web-plane -s=main attach --as <lane> <url>
 ```
+Starts or reuses the hidden browser for that profile, opens `<url>` in a tab labelled
+`<lane>`, and connects an isolated agent-browser session. Prefer this over doing
+`cdp` + `connect` by hand — the manual path has three ways to slip: forgetting
+`--session` (every agent then shares one daemon, and a second `connect` against a daemon
+that already holds a browser is a *silent no-op*, so you drive someone else's browser while
+believing it's yours), landing on a stray tab, and hardcoding a port that changes each launch.
+
+### Driving — always through the lane
+```
+web-plane lane <lane> snapshot
+web-plane lane <lane> click e3
+web-plane lane <lane> get url
+```
+`web-plane lane` re-pins your tab and then runs the agent-browser command against it.
+
+**Do not call `agent-browser` directly on a shared browser.** agent-browser tracks one
+active tab per session, and *any* session opening a tab drags every other session's pointer
+onto it — and leaves it there. Two agents silently converge onto one tab the first time
+either follows a link into a new one, and from then on they overwrite each other. The
+re-pin is what prevents that; `lane` just makes it unforgettable.
+
+A lane owns exactly one tab. If you need a second page, take a second lane.
+
+### Checking the setup is real
+```
+web-plane doctor
+```
+Stealth is layered (patched playwright → cloned Chrome → DYLD hook → hidden window) and a
+broken layer degrades quietly rather than failing: you get the *system* Chrome, a visible
+window, and a `hide` that can only minimize. If windows are showing up, run this first —
+it names the broken layer and the fix.
 
 ### CAPTCHAs, sliders, MFA — hand them to the human
 These are exactly what the site put there to stop automation. Do not try to solve or bypass

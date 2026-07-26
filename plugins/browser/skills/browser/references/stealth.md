@@ -11,26 +11,43 @@ npm install -g web-plane && web-plane install
 npm install -g agent-browser && agent-browser install
 ```
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the DYLD
-window-suppression hook, and patches a local playwright-cli under `~/.web-plane/`. Idempotent
-— re-run after a Chrome update. Requires macOS, Google Chrome, Node ≥18, Xcode CLT.
+window-suppression hook, and patches a local playwright-cli under `~/.web-plane/`. Idempotent,
+and it verifies the patch actually landed instead of assuming. Requires macOS, Google Chrome,
+Node ≥18, Xcode CLT. agent-browser must be ≥ 0.33 — below that, concurrent sessions cannot
+hold separate tabs.
 
 ## Drive
 ```bash
-web-plane -s=work cdp             # prints Session / CDP port / Attach line
-agent-browser connect <port>      # from the printed line
-agent-browser tab list            # pick the right tab if there are several
-agent-browser goto https://example.com
-agent-browser snapshot            # refs e1,e2… then click/fill by ref
-agent-browser eval "navigator.webdriver"   # => false (confirm stealth)
+web-plane -s=main attach --as work https://example.com   # start/reuse + open + connect
+web-plane lane work snapshot                             # refs e1,e2… then click/fill by ref
+web-plane lane work click e3
+web-plane lane work eval "navigator.webdriver"           # => false (confirm stealth)
 ```
+`-s` is the profile (login identity, one Chrome process); `--as` is your lane (one daemon +
+one labelled tab). Several agents on one identity: same `-s`, different `--as`.
 
-## Hide / show — web-plane owns visibility; agent-browser keeps driving either way
+Drive through `web-plane lane`, not `agent-browser` directly: it re-pins your tab first.
+Without that, the moment any session opens a tab, every other session's pointer moves to it
+and stays — so two agents end up writing over each other on one page. A lane owns one tab;
+need a second page, take a second lane.
+
+## Check it's actually on
 ```bash
-web-plane -s=work hide            # window invisible, CDP control unaffected
-web-plane -s=work show            # raises to the foreground (steals focus — that's the point)
-web-plane -s=work status          # session, PID, CDP port, hidden/minimized/visible
-web-plane -s=work close
+web-plane doctor      # patch / clone signature / clone version / dylib / agent-browser / sessions
 ```
+Stealth degrades quietly rather than failing — a missing playwright patch silently falls back
+to the *system* Chrome with no hook, so windows appear and `hide` can only minimize. If you
+see a window, run `doctor` before anything else.
+
+## Hide / show — web-plane owns visibility; driving continues either way
+```bash
+web-plane -s=main hide            # window invisible, CDP control unaffected
+web-plane -s=main show            # raises to the foreground (steals focus — that's the point)
+web-plane -s=main status          # session, PID, CDP port, hidden/minimized/visible
+web-plane -s=main close
+```
+Visibility is per *profile*, not per lane — one browser, one window. Showing it shows
+whatever tab is in front, so re-pin your lane before you `show` for a human handoff.
 Hidden is the resting state; `show` is only for a staged human handoff — see "Visibility
 choreography" in SKILL.md. Because `show` grabs the foreground, never fire it casually;
 fire it once, when the screen is exactly the one the human must act on. `show` also
@@ -38,7 +55,8 @@ recovers a window the user minimized by hand.
 
 ## Caveats
 - macOS only.
-- Re-run `web-plane install` after Chrome updates (the clone must track your Chrome version).
+- The clone carries Chrome's own updater and generally tracks your system version by itself;
+  `web-plane doctor` says when it has actually drifted. Re-run `install` then, not reflexively.
 - CAPTCHA / MFA still need the human — see the common layer in SKILL.md.
-- `web-plane cdp` requires a web-plane build that has the `cdp` command; if `web-plane --help`
-  doesn't list it, update web-plane.
+- Older builds lack `attach` / `lane` / `doctor`; if `web-plane --help` doesn't list them,
+  update web-plane.
