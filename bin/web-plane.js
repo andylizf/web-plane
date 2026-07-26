@@ -12,7 +12,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'show', 'hide', 'toggle', 'status', 'cdp']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'cdp', 'attach', 'lane']);
 
 // Find the command: first non-flag argument
 let commandIndex = -1;
@@ -52,6 +52,7 @@ Usage: web-plane [flags] <command> [args]
 
 Setup:
   install                 One-time setup (clone Chrome, compile DYLD hook, patch playwright)
+  doctor                  Check that stealth is actually in effect; print fixes
 
 Browser control (proxied to playwright-cli):
   open <url>              Open URL (auto-injects --headed, --profile, --config)
@@ -74,8 +75,19 @@ Window management:
   status                  Show browser status (PID, visibility, session)
 
 Integration (drive with agent-browser):
-  cdp                     Start/reuse a hidden session and print its CDP port
-                          plus a ready 'agent-browser connect <port>' line
+  attach [--as <lane>] <url>
+                          One step: start/reuse a hidden session, open <url> in a
+                          labelled tab, and connect an isolated agent-browser
+                          session. Preferred over doing cdp + connect by hand.
+                          -s picks the profile (login identity), --as picks the
+                          lane. Concurrent agents on one identity: same -s,
+                          different --as.
+  lane <lane> <args...>   Run an agent-browser command against that lane's tab,
+                          re-pinning it first. Use this instead of calling
+                          agent-browser directly whenever a browser is shared —
+                          any agent opening a tab moves everyone else's cursor.
+  cdp [url]               Start/reuse a hidden session and print its CDP port
+                          plus a ready 'agent-browser --session <name> connect' line
 
 Flags:
   -s=<name>               Named session (persistent across commands)
@@ -91,7 +103,9 @@ Examples:
   web-plane -s=research click e3
   web-plane hide
   web-plane show
-  web-plane cdp                     # then: agent-browser connect <port>`);
+  web-plane doctor
+  web-plane -s=work attach https://example.com   # start + open + connect, one step
+  web-plane cdp                     # then: agent-browser --session <name> connect <port>`);
   process.exit(0);
 }
 
@@ -104,6 +118,23 @@ if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
 if (command === 'install') {
   const { install } = await import('../lib/install.js');
   await install();
+} else if (command === 'doctor') {
+  const { doctor } = await import('../lib/health.js');
+  process.exit(doctor());
+} else if (command === 'lane') {
+  const { lane } = await import('../lib/cdp.js');
+  lane(commandArgs[0], commandArgs.slice(1));
+} else if (command === 'attach') {
+  const { attach } = await import('../lib/cdp.js');
+  let lane = null;
+  const rest = [];
+  for (let i = 0; i < commandArgs.length; i++) {
+    const a = commandArgs[i];
+    if (a.startsWith('--as=')) lane = a.slice(5);
+    else if (a === '--as' && commandArgs[i + 1]) lane = commandArgs[++i];
+    else rest.push(a);
+  }
+  await attach(parseSessionFlag(rawArgs), rest[0], lane);
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
   await windowControl(command, parseSessionFlag(rawArgs));
@@ -126,7 +157,7 @@ if (command === 'install') {
     if (a.startsWith('-s=')) session = a.slice(3);
     else if (a === '-s' && rawArgs[i + 1]) session = rawArgs[++i];
   }
-  await cdp(session);
+  await cdp(session, commandArgs[0] ?? null);
 } else {
   // Proxy to playwright-cli
   const { runCommand } = await import('../lib/commands.js');
