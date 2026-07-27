@@ -146,6 +146,14 @@ if (command === 'install') {
     console.log(`Chrome PID:    ${s.pid}`);
     console.log(`CDP port:      ${s.port}`);
     console.log(`Window:        ${s.hidden ? 'hidden' : s.minimized ? 'minimized' : 'visible'}`);
+    if (!s.managed) {
+      console.log(
+        `Suppression:   UNMANAGED — this Chrome was not launched by web-plane, so\n` +
+          `               'hide' can only minimize it (visible in the Dock, still\n` +
+          `               steals focus). Usually a leftover from a crashed session:\n` +
+          `               web-plane -s=${s.session ?? '<name>'} close, then start it again.`
+      );
+    }
   } else {
     console.log('No browser session running.');
   }
