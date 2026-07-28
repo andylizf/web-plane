@@ -73,6 +73,18 @@ profile shares one browser.
 - Name by identity, never by task: `-s=main`, `-s=work-alt`; not `-s=print-thing`.
 - Never spin up a throwaway profile per task. It starts logged out and never gets cleaned up.
 
+**Which profile is it?** Ask the disk, don't infer from the name:
+```
+web-plane profiles            # each profile: running/idle, size, sites it holds a session for
+web-plane profiles x.com      # → the profile already logged into x.com, if any
+```
+Two ways this goes wrong even when you know the rule above. First, `web-plane list` is *not*
+a web-plane command — it proxies to playwright-cli and prints that tool's session registry,
+which omits profiles it never opened and keeps names whose dirs are long gone. It reads as
+authoritative and costs a login you didn't need. Second, if your check for an existing
+profile is shaped like `grep <the-name-I-was-about-to-create>`, you are confirming a decision
+rather than discovering one; by construction it cannot find the profile you should reuse.
+
 **Lane (`--as <name>`)** is *your seat* in that shared browser: one agent-browser daemon
 plus one labelled tab. Concurrent agents = same `-s`, different `--as`.
 
