@@ -12,7 +12,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'cdp', 'attach', 'lane', 'profiles']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles']);
 
 // Commands playwright-cli answers about *itself*. Proxying them succeeds and
 // prints something authoritative-looking that has nothing to do with web-plane:
@@ -178,6 +178,9 @@ if (command === 'install') {
   } else {
     console.log('No browser session running.');
   }
+} else if (command === 'close') {
+  const { closeSession } = await import('../lib/window.js');
+  process.exit(await closeSession(parseSessionFlag(rawArgs)));
 } else if (command === 'cdp') {
   const { cdp } = await import('../lib/cdp.js');
   let session = null;
