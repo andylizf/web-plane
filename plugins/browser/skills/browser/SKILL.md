@@ -105,7 +105,11 @@ web-plane lane <lane> snapshot
 web-plane lane <lane> click e3
 web-plane lane <lane> get url
 ```
-`web-plane lane` re-pins your tab and then runs the agent-browser command against it.
+`web-plane lane` checks whether your tab is still the active one, re-pins only if it isn't,
+and then runs the agent-browser command against it. The check is load-bearing: a re-pin
+clears the snapshot ref table, so `snapshot` followed by `click e3` only works when nothing
+moved the pointer in between. If something did, the refs are gone — take a fresh snapshot
+instead of reusing them.
 
 **Do not call `agent-browser` directly on a shared browser.** agent-browser tracks one
 active tab per session, and *any* session opening a tab drags every other session's pointer
