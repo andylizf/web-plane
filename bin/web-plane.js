@@ -12,7 +12,20 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'cdp', 'attach', 'lane']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'cdp', 'attach', 'lane', 'profiles']);
+
+// Commands playwright-cli answers about *itself*. Proxying them succeeds and
+// prints something authoritative-looking that has nothing to do with web-plane:
+// `list` is playwright-cli's own session registry, which keeps names whose
+// profile dirs were deleted and omits profiles it never opened. Believing it
+// costs a real login — you conclude the user's profile isn't there and start a
+// fresh logged-out one. Refuse instead of answering wrongly.
+const MISLEADING_PROXIES = {
+  list: {
+    instead: 'web-plane profiles',
+    why: "prints playwright-cli's session registry, not web-plane profiles",
+  },
+};
 
 // Find the command: first non-flag argument
 let commandIndex = -1;
@@ -68,6 +81,12 @@ Browser control (proxied to playwright-cli):
   close                   Close browser session
   ...                     All other playwright-cli commands are supported
 
+Profiles (login identities):
+  profiles [site...]      Every profile on disk: running/idle, size, and which
+                          sites it already holds a session for. With a site,
+                          answers "which profile is logged into x.com?".
+                          Pick a profile by what's inside it, never by its name.
+
 Window management:
   show                    Make browser window visible
   hide                    Make window invisible (screenshots still work)
@@ -104,6 +123,8 @@ Examples:
   web-plane hide
   web-plane show
   web-plane doctor
+  web-plane profiles                # which profile is already logged into what
+  web-plane profiles x.com          # → the profile holding an x.com session
   web-plane -s=work attach https://example.com   # start + open + connect, one step
   web-plane cdp                     # then: agent-browser --session <name> connect <port>`);
   process.exit(0);
@@ -166,6 +187,17 @@ if (command === 'install') {
     else if (a === '-s' && rawArgs[i + 1]) session = rawArgs[++i];
   }
   await cdp(session, commandArgs[0] ?? null);
+} else if (command === 'profiles') {
+  const { profiles } = await import('../lib/profiles.js');
+  process.exit(profiles(commandArgs.filter((a) => !a.startsWith('-'))));
+} else if (MISLEADING_PROXIES[command]) {
+  const { instead, why } = MISLEADING_PROXIES[command];
+  console.error(
+    `web-plane: '${command}' is not a web-plane command — it would proxy to playwright-cli, which\n` +
+      `  ${why}.\n` +
+      `  Use: ${instead}`
+  );
+  process.exit(2);
 } else {
   // Proxy to playwright-cli
   const { runCommand } = await import('../lib/commands.js');
