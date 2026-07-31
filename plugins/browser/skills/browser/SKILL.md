@@ -149,6 +149,33 @@ moment: when the human must act (login, CAPTCHA, MFA, a final confirm). The cont
 If you discover mid-staging that you can't reach the handoff screen (e.g. a wall fires
 early), that changes what you show — re-stage so the wall itself is the screen, then show.
 
+**`show` reported success but the screen is wrong.** Check the session first: with several
+browsers up an unqualified `show` refuses rather than guessing, so the question is whether
+the `-s=` you passed is the session you were actually driving. Past that, suspect an
+OS-level block. macOS Screen Time paints its notice *over* the Chrome window — it is not
+page content, so a page screenshot renders what's underneath and looks perfectly normal,
+and while the window sits hidden at alpha 0 the notice is invisible along with everything
+else. The block cannot be seen from inside the browser at all; `screencapture -x` of the
+display is the only view that shows it.
+
+### Who drives — a subagent, not this conversation
+Snapshots are the cost. An accessibility tree runs to hundreds of lines, a real task needs
+many of them, and whoever issues the commands carries every one of them for the rest of the
+session. Run browser work in a subagent so that transcript is disposable.
+
+This is not the AI-wrapping ruled out at the top of this file: a subagent is the same loop
+and the same model, reading the same snapshots and making the same decisions. The only thing
+that changes is whose context absorbs them.
+
+Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
+for, what changed, the final URL. Never raw snapshots, never `.playwright-cli/` dumps.
+Pasting those back spends exactly what the subagent was there to save.
+
+What a subagent cannot do is hand over the keyboard. A login, a CAPTCHA, or an OS-level
+block needs the human, and the human is not reading that context. It should return a handoff
+request — what is on screen, what the user has to do — and let this conversation stage the
+`show`.
+
 ### Readiness
 Before driving, make sure the method's tools are installed and the kernel is up. Each
 reference lists its install line; if a command is missing, install it rather than failing.
