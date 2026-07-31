@@ -3,6 +3,7 @@
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { parseInvocation, parseSessionFlag, parseLaneFlag } from '../lib/args.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -27,37 +28,15 @@ const MISLEADING_PROXIES = {
   },
 };
 
-// Find the command: first non-flag argument
-let commandIndex = -1;
-let command = null;
-for (let i = 0; i < rawArgs.length; i++) {
-  const arg = rawArgs[i];
-  // Skip flags and their values
-  if (arg.startsWith('-')) {
-    // -s=deep (flag with =) — no skip
-    // -s deep (flag with space value) — skip next
-    if (!arg.includes('=') && i + 1 < rawArgs.length && !rawArgs[i + 1].startsWith('-')) {
-      i++; // skip value
-    }
-    continue;
-  }
-  command = arg;
-  commandIndex = i;
-  break;
+const { command, globalArgs, commandArgs } = parseInvocation(rawArgs);
+
+// Version before help: `--version` carries no command word, so a help check that
+// only looked for a missing command answered it with the whole usage screen.
+if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+  console.log(pkg.version);
+  process.exit(0);
 }
 
-const globalArgs = commandIndex > 0 ? rawArgs.slice(0, commandIndex) : [];
-const commandArgs = commandIndex >= 0 ? rawArgs.slice(commandIndex + 1) : [];
-
-function parseSessionFlag(args) {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('-s=')) return args[i].slice(3);
-    if (args[i] === '-s' && i + 1 < args.length) return args[i + 1];
-  }
-  return null;
-}
-
-// Handle --help and --version
 if (!command || rawArgs.includes('--help') || rawArgs.includes('-h')) {
   console.log(`web-plane v${pkg.version} — ${pkg.description}
 
@@ -130,11 +109,6 @@ Examples:
   process.exit(0);
 }
 
-if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
-  console.log(pkg.version);
-  process.exit(0);
-}
-
 // Dispatch
 if (command === 'install') {
   const { install } = await import('../lib/install.js');
@@ -147,14 +121,7 @@ if (command === 'install') {
   lane(commandArgs[0], commandArgs.slice(1));
 } else if (command === 'attach') {
   const { attach } = await import('../lib/cdp.js');
-  let lane = null;
-  const rest = [];
-  for (let i = 0; i < commandArgs.length; i++) {
-    const a = commandArgs[i];
-    if (a.startsWith('--as=')) lane = a.slice(5);
-    else if (a === '--as' && commandArgs[i + 1]) lane = commandArgs[++i];
-    else rest.push(a);
-  }
+  const { lane, rest } = parseLaneFlag(commandArgs);
   await attach(parseSessionFlag(rawArgs), rest[0], lane);
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
@@ -183,13 +150,7 @@ if (command === 'install') {
   process.exit(await closeSession(parseSessionFlag(rawArgs)));
 } else if (command === 'cdp') {
   const { cdp } = await import('../lib/cdp.js');
-  let session = null;
-  for (let i = 0; i < rawArgs.length; i++) {
-    const a = rawArgs[i];
-    if (a.startsWith('-s=')) session = a.slice(3);
-    else if (a === '-s' && rawArgs[i + 1]) session = rawArgs[++i];
-  }
-  await cdp(session, commandArgs[0] ?? null);
+  await cdp(parseSessionFlag(rawArgs), commandArgs[0] ?? null);
 } else if (command === 'profiles') {
   const { profiles } = await import('../lib/profiles.js');
   process.exit(profiles(commandArgs.filter((a) => !a.startsWith('-'))));

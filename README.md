@@ -45,7 +45,7 @@ web-plane install
 
 `web-plane install` clones Chrome, compiles the native DYLD hook, patches playwright-cli, and sets everything up under `~/.web-plane/`. Idempotent — re-run after Chrome updates. (A background Chrome update can re-sign the clone and break DYLD injection; the next hidden launch detects that and re-applies the ad-hoc signature automatically, so re-running `install` is only needed to pick up a new Chrome version.)
 
-Requires: macOS, Google Chrome, Node.js >= 18, Xcode Command Line Tools.
+Requires: macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
 
 ### The `browser` skill (Claude Code)
 
@@ -154,6 +154,33 @@ Runtime files live in `~/.web-plane/`:
 ├── profiles/<session>/          Persistent browser profiles
 └── cli.config.json              Launch config
 ```
+
+## Tests
+
+Everything here manipulates state it cannot directly observe — the window
+server, an injected dylib, a patched third-party tree — so the tests assert
+observed effects and never that a command returned.
+
+```bash
+npm run check             # every JS file parses (commands are imported lazily)
+npm run test:unit         # no display needed: session/profile resolution, lane
+                          # pinning, and show's verification rules fed synthetic
+                          # window-server states
+npm run test:doctor       # doctor against an install broken one layer at a time
+npm run test:integration  # a real cloned Chrome: launch → hide → show → close,
+                          # judged by CoreGraphics, not by web-plane's own report
+npm run test:mutation     # puts known bugs back and demands the suite go red
+```
+
+`test:integration` needs an **unlocked** Mac with a live window server: while the
+screen is locked macOS composites nothing, so a window that was shown correctly
+and a window that never appeared look identical. It refuses to run in that state
+rather than passing without proving anything — and rather than skipping, which
+would read as a green tick.
+
+`tests/tools/trace-window.mjs` walks one session through launch → hide → show and
+prints what Chrome, CoreGraphics and the Accessibility API each say about the
+window at every step. It is the fastest way into any "but it says it worked" bug.
 
 ## License
 

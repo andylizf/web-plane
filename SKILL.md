@@ -40,7 +40,7 @@ npm install -g agent-browser && agent-browser install
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the
 DYLD window-suppression hook, and patches a local playwright-cli — all under
 `~/.web-plane/`. It is idempotent; re-run it after a Chrome update. Requires
-macOS, Google Chrome, Node.js >= 18, Xcode Command Line Tools.
+macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
 
 ## Use
 

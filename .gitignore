@@ -2,3 +2,9 @@ node_modules/
 
 # playwright-cli runtime output (snapshots/screenshots)
 .playwright-cli/
+
+# throwaway $HOME trees, cloned Chromes and mutant checkouts built by the tests
+tmp/
+
+# test and trace output
+logs/

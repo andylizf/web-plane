@@ -1,0 +1,179 @@
+name: CI
+
+# web-plane manipulates state it cannot directly observe — the window server, an
+# injected dylib, a patched third-party tree — so every failure it has ever had
+# looked like success. The jobs below are arranged around that: assert observed
+# effects, and never let "the command returned" stand in for "the effect happened".
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The version the package promises to run on. Everything else installs exactly
+  # this, so `engines` is enforced rather than decorative.
+  declared-node:
+    runs-on: ubuntu-latest
+    outputs:
+      major: ${{ steps.read.outputs.major }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: read
+        run: echo "major=$(node scripts/min-node.mjs)" >> "$GITHUB_OUTPUT"
+
+  # Pure logic, no display, no Chrome: profile and session resolution, lane
+  # pinning, CLI shape, and the window-verification rules fed synthetic
+  # window-server states. Runs on Linux precisely because none of it may depend
+  # on macOS being present.
+  logic:
+    needs: declared-node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ needs.declared-node.outputs.major }}
+      - run: node --version
+      - name: every JavaScript file parses
+        run: npm run check
+      - name: unit tests
+        run: npm run test:unit
+      - name: record coverage
+        if: always()
+        run: |
+          {
+            echo "### logic (ubuntu, node ${{ needs.declared-node.outputs.major }})"
+            echo "Covered: CLI argument shape, session/profile resolution, cookie-DB login"
+            echo "detection, lane pinning, and \`show\`'s verification rules against synthetic"
+            echo "window-server states."
+            echo ""
+            echo "NOT covered here: anything needing a window server, a real Chrome, or codesign."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # A broken dylib does not crash anything — it degrades into "system Chrome,
+  # visible window, no stealth". Compiling it with warnings fatal is the cheapest
+  # guard against that going unnoticed.
+  native:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: compile the DYLD window-suppression hook
+        run: cc -Wall -Werror -dynamiclib -framework AppKit -framework Foundation -o /tmp/window_suppress.dylib native/window_suppress.m
+      - name: compile the window_alpha tool
+        run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -o /tmp/window_alpha native/window_alpha.m
+      - name: compile the test's window-server probe
+        run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -framework ApplicationServices -o /tmp/winprobe tests/native/winprobe.m
+      - name: the dylib actually injects and its constructor runs
+        # Compiling is not the same as loading: DYLD_INSERT_LIBRARIES is silently
+        # ignored for a binary that is not ad-hoc signed, and a constructor that
+        # never runs hooks nothing. The dylib announces itself by creating
+        # /tmp/.chrome-suppress-<pid>, so ask for that rather than for a symbol.
+        run: |
+          set -euo pipefail
+          cc -Wall -Werror -o /tmp/inject_host tests/native/inject_host.c
+          codesign --force --sign - /tmp/inject_host
+
+          control_pid=$(/tmp/inject_host)
+          if [ -e "/tmp/.chrome-suppress-$control_pid" ]; then
+            echo "::error::the suppress file exists without injection — this check proves nothing"
+            exit 1
+          fi
+
+          injected_pid=$(DYLD_INSERT_LIBRARIES=/tmp/window_suppress.dylib /tmp/inject_host)
+          if [ ! -e "/tmp/.chrome-suppress-$injected_pid" ]; then
+            echo "::error::the dylib did not load (or its constructor did not run): no /tmp/.chrome-suppress-$injected_pid"
+            exit 1
+          fi
+          echo "injection confirmed: /tmp/.chrome-suppress-$injected_pid was created"
+          rm -f "/tmp/.chrome-suppress-$injected_pid"
+      - name: record coverage
+        if: always()
+        run: |
+          {
+            echo "### native (macos)"
+            echo "Covered: both \`native/*.m\` compile with \`-Wall -Werror\`, and the built dylib"
+            echo "really loads into an ad-hoc signed process and runs its constructor (checked"
+            echo "against a control run without injection, so the check cannot pass vacuously)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The real thing: a cloned Chrome, the dylib injected, and the hide/show round
+  # trip judged by CoreGraphics rather than by web-plane's own report.
+  macos:
+    needs: declared-node
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ needs.declared-node.outputs.major }}
+      - run: node --version && sw_vers
+
+      - name: the runner has a window server we can observe
+        # Stated as its own step so "the display is locked / there is no GUI
+        # session" can never be mistaken for "web-plane failed to show a window".
+        run: node tests/tools/check-display.mjs
+
+      - name: unit tests
+        run: npm run test:unit
+
+      - name: doctor detects each deliberately broken layer
+        run: npm run test:doctor
+
+      - name: hide/show round trip against a real Chrome
+        run: npm run test:integration
+
+      - name: the round-trip test fails when the bug is put back
+        # Without this, a test that passes either way looks exactly like a test
+        # that works — which is how the original bug shipped.
+        run: npm run test:mutation
+
+      - name: record coverage
+        if: always()
+        run: |
+          {
+            echo "### macos (real Chrome + window server)"
+            echo "Covered: launch suppression (zero flash), hide (alpha 0 + off screen),"
+            echo "show (window genuinely composited, verified via CoreGraphics and the"
+            echo "Accessibility API), popups born while hidden, close, \`doctor\` against"
+            echo "each broken layer — plus a mutation gate proving the round-trip test"
+            echo "goes red when the deminiaturize fix is reverted."
+            if [ -f tmp/uncovered.txt ]; then
+              echo ""
+              echo "Checks this run could NOT make:"
+              sed 's/^/- /' tmp/uncovered.txt
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: keep the evidence from a failed run
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: macos-failure-logs
+          path: |
+            tmp/uncovered.txt
+            logs/
+          if-no-files-found: ignore
+
+  # A green tick must mean every job ran, not that some were skipped.
+  summary:
+    if: always()
+    needs: [logic, native, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: every job must have succeeded
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "job results: $results"
+          for r in $results; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a CI job did not succeed ($r) — this run proves nothing"
+              exit 1
+            fi
+          done
+          echo "All jobs succeeded."
