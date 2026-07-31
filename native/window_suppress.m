@@ -5,7 +5,7 @@
 //
 // Post-launch hide/show via Unix signals:
 //   SIGUSR1 → hide all windows (setAlphaValue:0)
-//   SIGUSR2 → show all windows (setAlphaValue:1)
+//   SIGUSR2 → show all windows (deminiaturize + setAlphaValue:1)
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
@@ -58,6 +58,14 @@ static void handleSIGUSR1(int sig) {
 static void handleSIGUSR2(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (NSWindow *w in [NSApp windows]) {
+            // Hiding is TWO acts — miniaturize, then alpha 0 — so showing has to
+            // undo both. Restoring only the alpha left the window genuinely
+            // miniaturized, parked in the Dock's minimized tray where nobody
+            // thinks to look, while every signal we check said it was fine:
+            // Chrome reports windowState normal (it never saw the minimize, we
+            // did it behind its back), and CGWindowList reports alpha 1 with
+            // correct bounds (a miniaturized window keeps both).
+            if ([w isMiniaturized]) [w deminiaturize:nil];
             [w setAlphaValue:1.0];
         }
     });
