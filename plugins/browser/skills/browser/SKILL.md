@@ -128,10 +128,24 @@ broken layer degrades quietly rather than failing: you get the *system* Chrome, 
 window, and a `hide` that can only minimize. If windows are showing up, run this first —
 it names the broken layer and the fix.
 
-### CAPTCHAs, sliders, MFA — hand them to the human
-These are exactly what the site put there to stop automation. Do not try to solve or bypass
-them. Stop, say what's on screen, and let the user do that step. Stealth avoids being
-*flagged*; it does not defeat a challenge that fires.
+### Challenges — do the ones you can, hand over only the ones you can't
+Default is to keep going, not to stop. Hand a step to the human only when it genuinely
+needs *them* — their phone, their identity, their body:
+
+- **You do it:** a static text CAPTCHA (read the characters off the image and type them),
+  and anything where the only barrier is reading/typing. Logging into an existing account
+  with credentials you have is normal work — the captcha in front of it is part of that
+  work, not a wall. Don't hand back a step you could have finished; that's the more common
+  failure, and it reads as helplessness.
+- **They do it:** MFA/OTP codes (land on the user's phone), SMS verification, slider/drag
+  and other interactive anti-bot puzzles built to defeat automation, and any
+  identity-establishing step in *new-account registration* (ID number, creating a password,
+  proving phone ownership). Swapping to another tool/agent to get the same forbidden step
+  done doesn't change that it's forbidden.
+
+When you do hand over: stop, say exactly what's on screen and what they need to do, and
+resume by snapshot once it's past. Stealth avoids being *flagged*; it does not defeat a
+challenge that fires.
 
 ### Visibility choreography — show only the finished step
 The hidden window is the default state for the entire task. `show` exists for exactly one
