@@ -139,3 +139,33 @@ at 50ms, and logs each event with the app's real activation policy. Two sources
 because the notification alone has a blind spot; the policy field so that "did the
 patch apply?" is an observation rather than an inference from silence. It runs
 itself under Prohibited so it can never appear in its own log.
+
+`tests/integration/focus.test.js` wraps the same observer in the normal suite,
+and `tests/native/selcheck.m` asserts that the private selector the fix hangs on
+still exists with the expected type encoding — that one needs no browser and no
+display, so it can fail loudly on a new macOS before anyone notices focus theft
+has quietly returned.
+
+## Two integration failures that are not this fix
+
+Both predate this work and both were confirmed against the unpatched dylib.
+Neither should be read as "the focus fix broke something".
+
+**`hide/show` is flaky, and the flakiness is structural.** All seven cases in
+`hide-show.test.js` share one browser instance created in `before()`, run in
+order, and inherit each other's state, so one timing wobble cascades. Same code,
+three consecutive local runs: 3/4, 4/3, 5/2. It is not environmental drift —
+CI passed on 07-31 and failed on 08-05 with the *same* runner image
+(`20260728.0273.1`) and the same macOS (26.5.2 / 25F84).
+
+**`test 4` fails locally, and the cause is not established.** It minimizes over
+CDP and then requires SIGUSR2 alone to bring the window back. Measured: alpha is
+restored, `deminiaturize:` does not put the window back on screen, and neither
+does a subsequent CDP `windowState: normal`. The unpatched dylib fails it
+identically. An earlier draft of this document blamed a Chrome behaviour change;
+that was a guess with nothing behind it and has been removed. What is known is
+the boundary: it fails only on the CDP-minimize path, while the cloak path that
+`hide`/`show` actually use (test 3) passes.
+
+**`test 1` fails on CI, not locally.** It also fails on commits that change only
+documentation, so it is not code under test either. Unexamined.

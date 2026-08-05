@@ -50,6 +50,54 @@ web-plane install
 
 Requires: macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
 
+### Screen Time will break this, silently
+
+If Screen Time has an app limit covering Google Chrome, **add Chrome to Always
+Allowed** (System Settings → Screen Time → Always Allowed). Otherwise every
+session breaks the moment that limit is reached, and it breaks in the worst
+possible way: quietly.
+
+The clone is a copy of your Chrome, so it carries the same bundle identifier
+(`com.google.Chrome`). Screen Time matches on that identifier, which means a
+limit you set for your own browsing also applies to every browser your
+automation drives — and there is no separate limit to exempt.
+
+What it looks like when it happens:
+
+- `show` fails, or reports success while nothing appears on screen
+- the window has the right size and position and is completely invisible
+- nothing in the logs mentions Screen Time
+
+Because the block is enforced at the window server, not inside the process. The
+same window, read at the same instant from both sides:
+
+```
+AppKit (in-process):    alpha 1.00   visible=1   frame 100,82  1280x800
+Window server:          alpha 0      onscreen=false            1280x800
+```
+
+The process sets alpha 1 and genuinely holds alpha 1; the compositor draws
+nothing. No amount of retrying from inside Chrome can win that, which is why
+web-plane cannot work around it and does not try.
+
+To confirm it is this and not a web-plane bug, look for the lockout panel macOS
+injects into the process — its class name is unmistakable:
+
+```bash
+web-plane -s=<session> show          # then, if the screen stayed blank:
+screencapture -x /tmp/screen.png     # a page screenshot cannot show it; this can
+```
+
+A `NSLockoutUIOverlayWindow` sized exactly like the browser window is Screen
+Time. Note it is also *drawn over* the browser window, so with the window hidden
+the notice explaining the blankness is hidden along with it.
+
+This matters most for unattended automation. A scheduled job that drives a
+browser — a login that refreshes a VPN cookie, a nightly scrape — will start
+failing at whatever hour the limit trips, log only that it could not open a
+page, and recover on its own the next day. That is a hard failure to read from
+the logs alone.
+
 ### The `browser` skill (Claude Code)
 
 This repo is also a Claude Code **plugin marketplace**. The `browser` skill — which tells agents to reach for web-plane by default and routes across fast/cloak/cloud/computer-use — installs the canonical way, not by copying files:
@@ -181,17 +229,26 @@ and a window that never appeared look identical. It refuses to run in that state
 rather than passing without proving anything — and rather than skipping, which
 would read as a green tick.
 
+`test:integration` also covers focus: a hidden launch must not take the
+foreground, `show` must not leave a window parked offscreen, and the private
+AppKit selector the focus fix depends on must still exist. For a quick manual
+check outside the suite:
+
 ```bash
 ./tests/focus-steal.sh <label>   # does a hidden launch take the foreground?
 ```
 
-Not part of `npm test` — it launches a real browser and is judged by
-`tests/native/focusmon.m`, an observer that listens for activation events, polls
-the frontmost app, and records each app's actual activation policy. Run it at
-least three times: focus theft here is a race, and a single green run has
-already been wrong twice. A dead browser also produces a perfectly clean focus
-log, so liveness is part of the verdict — no live process reports `INVALID`
-rather than `CLEAN`.
+Both are judged by `tests/native/focusmon.m`, an observer that listens for
+activation events, polls the frontmost app, and records each app's actual
+activation policy. Run the shell one at least three times: focus theft is a
+race, and a single green run has already been wrong twice. A dead browser also
+produces a perfectly clean focus log, so liveness is part of the verdict — no
+live process reports `INVALID` rather than `CLEAN`.
+
+Two cases in `hide-show.test.js` are known-red and predate this suite's current
+state — one is structurally flaky (all seven share a browser and run in order),
+one fails only on the CDP-minimize path. Both fail identically on an unpatched
+dylib. See [`docs/window-and-focus.md`](docs/window-and-focus.md).
 
 `tests/tools/trace-window.mjs` walks one session through launch → hide → show and
 prints what Chrome, CoreGraphics and the Accessibility API each say about the

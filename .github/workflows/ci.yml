@@ -68,6 +68,15 @@ jobs:
         run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -o /tmp/window_alpha native/window_alpha.m
       - name: compile the test's window-server probe
         run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -framework ApplicationServices -o /tmp/winprobe tests/native/winprobe.m
+      - name: the private selector the focus fix hooks still exists
+        # Needs neither a browser nor a display, so it belongs here rather than
+        # in the integration job: a macOS update that renames
+        # -[NSApplication _activateWithInfo:] makes the dylib fall back silently
+        # to a slower path, and the only symptom would be focus theft coming
+        # back. Fail the build instead.
+        run: |
+          cc -Wall -Werror -framework AppKit -framework Foundation -o /tmp/selcheck tests/native/selcheck.m
+          /tmp/selcheck
       - name: the dylib actually injects and its constructor runs
         # Compiling is not the same as loading: DYLD_INSERT_LIBRARIES is silently
         # ignored for a binary that is not ad-hoc signed, and a constructor that
