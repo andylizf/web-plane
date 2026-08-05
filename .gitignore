@@ -8,3 +8,8 @@ tmp/
 
 # test and trace output
 logs/
+
+# compiled native test tools
+tests/native/winprobe
+tests/native/focusmon
+tests/native/inject_host

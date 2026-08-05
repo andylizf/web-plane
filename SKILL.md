@@ -18,7 +18,7 @@ complementary, not competing:
   detectable.
 - **web-plane** = the stealth kernel (a cloned, re-signed real Chrome →
   `webdriver=false`, real UA, Cloudflare-proof) with a macOS "zero-flash" hidden
-  window that never steals focus.
+  window that does not take focus on launch (`docs/window-and-focus.md`).
 
 Point agent-browser at web-plane's hidden Chrome over CDP and you get
 agent-browser's ergonomics with web-plane's undetectability, invisibly.

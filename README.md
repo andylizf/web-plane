@@ -20,10 +20,13 @@ Page Title: ChatGPT    ← logged in, ready to go
 
 1. **APFS clone** of `/Applications/Google Chrome.app` — copy-on-write, takes seconds, shares disk space with the original
 2. **DYLD injection** hooks `NSWindow` methods at launch to suppress the window before the first frame renders
-3. **SIGUSR signals** control visibility post-launch: `SIGUSR1` sets all windows transparent, `SIGUSR2` restores them
-4. **Patched playwright-cli** orchestrates Chrome launch with the DYLD hook and handles CDP state transitions
+3. **Activation suppression** stops AppKit's window-restoration pass from pulling the app to the foreground — a separate problem from the window, and one no NSWindow hook can solve
+4. **SIGUSR signals** control visibility post-launch: `SIGUSR1` sets all windows transparent, `SIGUSR2` restores them
+5. **Patched playwright-cli** orchestrates Chrome launch with the DYLD hook and handles CDP state transitions
 
 The browser is headed (not headless), renders to a real GPU surface, and maintains persistent login sessions. Screenshots work even when the window is hidden.
+
+No window is ever visible and a launch does not take your keyboard — but those are two different mechanisms, and the second one was broken for a long time. macOS grants the foreground to an *application*, not a window, so a fully cloaked browser could still steal focus for six seconds. The cause turned out to be AppKit's own "Resume" window restoration activating the app, not anything Chromium did. See [`docs/window-and-focus.md`](docs/window-and-focus.md) for the trace, the measurements, and the several fixes that looked right and were not.
 
 ## Install
 
@@ -177,6 +180,18 @@ screen is locked macOS composites nothing, so a window that was shown correctly
 and a window that never appeared look identical. It refuses to run in that state
 rather than passing without proving anything — and rather than skipping, which
 would read as a green tick.
+
+```bash
+./tests/focus-steal.sh <label>   # does a hidden launch take the foreground?
+```
+
+Not part of `npm test` — it launches a real browser and is judged by
+`tests/native/focusmon.m`, an observer that listens for activation events, polls
+the frontmost app, and records each app's actual activation policy. Run it at
+least three times: focus theft here is a race, and a single green run has
+already been wrong twice. A dead browser also produces a perfectly clean focus
+log, so liveness is part of the verdict — no live process reports `INVALID`
+rather than `CLEAN`.
 
 `tests/tools/trace-window.mjs` walks one session through launch → hide → show and
 prints what Chrome, CoreGraphics and the Accessibility API each say about the

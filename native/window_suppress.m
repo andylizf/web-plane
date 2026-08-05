@@ -46,6 +46,73 @@ static void cloak(NSWindow *w) {
     [w setFrameOrigin:NSMakePoint(-9999, -9999)];
 }
 
+// Cloaking hides windows. It cannot stop the app from being activated, because
+// activation is granted to the *application*, not to any of its windows: a
+// launching process is brought to the front by the system, without calling any
+// NSWindow method we could swizzle. Measured on macOS 26.2 before this existed:
+// the clone went frontmost 5.6s into a hidden launch and held it for 6.2s, with
+// every window correctly transparent and parked offscreen the whole time. The
+// user saw no window and still lost the keyboard.
+//
+// No activation policy is set here, and that is a conclusion rather than an
+// omission. Both options were tried and measured on 26.2:
+//
+//   Accessory   Ineffective. It removes the Dock tile and the Cmd-Tab entry but
+//               leaves the app eligible to be activated — the observer recorded
+//               the clone taking the front with policy=Accessory already in
+//               effect. An lldb trace later showed why: the activation path does
+//               not consult the policy at all.
+//   Prohibited  Effective, and unusable. Focus stayed clean across three runs,
+//               then Chrome exited while loading a real page (it survived
+//               about:blank for 16s; the same URL under the unpatched dylib kept
+//               its process alive). Prohibited works by making the process
+//               ineligible for the foreground, which the browser does not
+//               tolerate.
+//
+// Worse, switching policy on `show` broke it: flipping back to Regular in the
+// SIGUSR2 handler left the window miniaturized in the Dock with alpha restored —
+// exactly the failure that `tests/integration/hide-show.test.js` was written for
+// after d787200, and it went red. Activation is dealt with at its real entry
+// point instead (see the _activateWithInfo: hook below).
+
+// Chrome's renderers, GPU and utility children inherit DYLD_INSERT_LIBRARIES,
+// so this constructor runs in every one of them. Only the browser process owns
+// the app's activation state; letting a child instantiate NSApp just to change
+// a policy it does not own would spin up AppKit in a process designed never to
+// need it. Children are the ones carrying --type=.
+static BOOL isBrowserProcess(void) {
+    for (NSString *arg in [[NSProcessInfo processInfo] arguments]) {
+        if ([arg hasPrefix:@"--type="]) return NO;
+    }
+    return YES;
+}
+
+// Who had the keyboard when this process started — the app to hand it back to.
+static pid_t gPrevFrontPid = 0;
+
+// Backstop. The _activateWithInfo: hook below prevents the activation outright
+// and measures zero stolen focus, so on a healthy build this never fires. It is
+// kept because that hook rests on a private selector: if a future AppKit renames
+// it, the guard there declines to swizzle and this is what stops a silent
+// regression back to seconds of stolen focus.
+//
+// Undoing an activation rather than preventing it: hand the foreground back to
+// whoever had it. That is an ordinary activation of *another* process, which the
+// OS permits and which the self-activation guards deliberately let through.
+// Driven by the DidBecomeActive notification (and re-checked on the 16ms timer),
+// it measured 14-52ms of stolen focus on its own — a visible blink, which is why
+// it is the fallback and not the fix.
+static void yieldFocusBack(void) {
+    if (gPrevFrontPid <= 0) return;
+    if (![[NSRunningApplication currentApplication] isActive]) return;
+    NSRunningApplication *prev =
+        [NSRunningApplication runningApplicationWithProcessIdentifier:gPrevFrontPid];
+    // Gone, or it is us: nothing to give the keyboard back to, and activating
+    // ourselves here would be the very bug this function exists to undo.
+    if (!prev || prev.processIdentifier == getpid()) return;
+    [prev activateWithOptions:0];
+}
+
 // Signal handlers — dispatch to main thread for AppKit safety
 static void handleSIGUSR1(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -100,16 +167,35 @@ static void init(void) {
         @selector(orderFront:),
         @selector(orderFrontRegardless),
     };
+    // Saved so the makeKeyAndOrderFront: hook can order a window in *without*
+    // the makeKey half. Filled on the i==1 pass; the block below only reads it
+    // at call time, long after this loop has finished.
+    static IMP origOrderFront = NULL;
+    static SEL orderFrontSel = NULL;
     for (int i = 0; i < 3; i++) {
         SEL sel = sels[i];
         Method m = class_getInstanceMethod(cls, sel);
         IMP origIMP = method_getImplementation(m);
+        if (i == 1) { origOrderFront = origIMP; orderFrontSel = sel; }
         IMP newIMP;
         if (i < 2) {
+            BOOL isMakeKey = (i == 0);
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
-                if (shouldSuppress()) {
+                if (shouldSuppress() || isHidden()) {
                     cloak(self);
-                    ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
+                    // Making a window key is itself an activation request: the
+                    // system brings the owning app forward so the key window can
+                    // receive typing. Cloaking cannot prevent that, because the
+                    // window's alpha and position have nothing to do with who
+                    // owns the keyboard — which is why focus was still being
+                    // taken with every window correctly transparent, offscreen,
+                    // the app already Accessory, and all three activation APIs
+                    // hooked. Order the window in, skip the makeKey.
+                    if (isMakeKey && origOrderFront) {
+                        ((void(*)(id, SEL, id))origOrderFront)(self, orderFrontSel, sender);
+                    } else {
+                        ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
+                    }
                     cloak(self);
                     return;
                 }
@@ -165,6 +251,11 @@ static void init(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             NSTimer *t = [NSTimer timerWithTimeInterval:0.016 repeats:YES block:^(NSTimer *_t) {
                 if (!isHidden()) return;
+                // Backstop for the launch-time policy below. If anything set the
+                // app back to Regular — or finishLaunching ran too late to beat
+                // the system's activation — this pulls it out of the foreground
+                // within a frame instead of leaving it there for seconds.
+                yieldFocusBack();
                 for (NSWindow *w in [NSApp windows]) {
                     if ([w alphaValue] > 0.0) [w setAlphaValue:0.0];
                     NSPoint o = [w frame].origin;
@@ -174,6 +265,74 @@ static void init(void) {
             [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
         });
     }
+    // Record the outgoing front app before Chrome can displace it. Read here in
+    // the constructor, which runs before the browser has a window to steal with,
+    // so the pid captured is genuinely the user's app rather than our own.
+    if (isBrowserProcess()) {
+        NSRunningApplication *front = [[NSWorkspace sharedWorkspace] frontmostApplication];
+        if (front && front.processIdentifier != getpid()) {
+            gPrevFrontPid = front.processIdentifier;
+        }
+
+        // Give the keyboard back the instant it arrives, rather than on the next
+        // timer tick. The 16ms poll alone measured 47ms, 324ms and 661ms of
+        // stolen focus across three runs — the spread is the poll waiting for a
+        // run loop that is busy starting a browser. This notification fires as
+        // part of the activation itself, so the hand-back is queued before the
+        // user can finish a keystroke. The timer stays as the backstop for any
+        // activation that somehow does not post it.
+        [[NSNotificationCenter defaultCenter]
+            addObserverForName:NSApplicationDidBecomeActiveNotification
+                        object:nil
+                         queue:nil
+                    usingBlock:^(NSNotification *note) {
+            if (isHidden() || shouldSuppress()) yieldFocusBack();
+        }];
+    }
+
+    // The door the focus actually walks out of.
+    //
+    // An lldb trace of the injected clone caught the real stack, and it is not
+    // Chromium's:
+    //
+    //   SLSSetFrontProcessWithInfo                          (SkyLight)
+    //   _NXActivateSelf                                     (AppKit)
+    //   -[NSApplication _activateWithInfo:]
+    //   -[NSApplication _activateUsingEvent:ignoringOtherApps:...]
+    //   -[NSApplication _reopenWindowsAsNecessaryIncludingRestorableState:...]
+    //   -[NSPersistentUIManager restoreAllPersistentStateWithFullFidelity:...]
+    //
+    // AppKit's own window-state restoration ("Resume") activates the app from its
+    // completion handler, unconditionally, about a second after launch. It goes
+    // through a private funnel and never touches activateIgnoringOtherApps:,
+    // activate, or NSRunningApplication — which is exactly why hooking all three
+    // lowered the stolen interval without ever closing it. Chromium *does* call
+    // activateIgnoringOtherApps: at startup and the hook below does stop that one;
+    // it simply was never the call that mattered.
+    //
+    // Suppressing this funnel was measured to keep the front app unchanged for a
+    // whole run with SLSSetFrontProcessWithInfo never reached, and — unlike
+    // Prohibited — the browser loads real pages and stays alive.
+    //
+    // Private selector, so: looked up by name, guarded on existence, and the
+    // public hooks are kept as a fallback for an OS that renames it. Hidden state
+    // is the gate, so `show` still activates normally for a human handoff.
+    if (isBrowserProcess()) {
+        SEL sel = NSSelectorFromString(@"_activateWithInfo:");
+        Method m = class_getInstanceMethod([NSApplication class], sel);
+        // Verified as v24@0:8@16 on 26.2 — void return, one object argument. A
+        // different encoding means AppKit changed the method, and calling through
+        // with the wrong signature would corrupt the stack; leave it alone and let
+        // the fallbacks carry it.
+        if (m && strcmp(method_getTypeEncoding(m), "v24@0:8@16") == 0) {
+            IMP origIMP = method_getImplementation(m);
+            method_setImplementation(m, imp_implementationWithBlock(^(NSApplication *self, id info) {
+                if (shouldSuppress() || isHidden()) return;
+                ((void(*)(id, SEL, id))origIMP)(self, sel, info);
+            }));
+        }
+    }
+
     // Block activation while suppressing
     {
         Class appCls = [NSApplication class];
@@ -185,5 +344,59 @@ static void init(void) {
             if (shouldSuppress() || isHidden()) return;
             ((void(*)(id, SEL, BOOL))origIMP)(self, sel, flag);
         }));
+    }
+
+    // -[NSApplication activate], the macOS 14 cooperative-activation replacement
+    // for the call hooked above. Chrome 150's framework references both, and a
+    // hook on the deprecated one alone leaves the current API wide open. Guarded
+    // by a NULL check rather than an OS version test: if the running AppKit does
+    // not have the selector there is nothing to hook and nothing to worry about.
+    {
+        SEL sel = @selector(activate);
+        Method m = class_getInstanceMethod([NSApplication class], sel);
+        if (m) {
+            IMP origIMP = method_getImplementation(m);
+            method_setImplementation(m, imp_implementationWithBlock(^(NSApplication *self) {
+                if (shouldSuppress() || isHidden()) return;
+                ((void(*)(id, SEL))origIMP)(self, sel);
+            }));
+        }
+    }
+
+    // The route that was actually open. NSRunningApplication is a *different
+    // class* from NSApplication, so neither hook above sees a call made through
+    // it, and `strings` on Chrome 150's framework lists all three selectors —
+    // activate, activateIgnoringOtherApps:, activateWithOptions:. Blocking two
+    // of three left the app free to raise itself through the third, which is
+    // consistent with what the observer recorded: focus taken while the policy
+    // was already Accessory and both NSApplication hooks were installed.
+    //
+    // Only self-activation is refused. Activating some *other* application is a
+    // legitimate thing for this process to do — notably handing focus back — and
+    // blocking that would strand the user's front app.
+    {
+        SEL sels[] = { @selector(activateWithOptions:),
+                       @selector(activateFromApplication:options:) };
+        for (int i = 0; i < 2; i++) {
+            SEL sel = sels[i];
+            Method m = class_getInstanceMethod([NSRunningApplication class], sel);
+            if (!m) continue;
+            IMP origIMP = method_getImplementation(m);
+            if (i == 0) {
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^BOOL(NSRunningApplication *self, NSApplicationActivationOptions opts) {
+                        if ((shouldSuppress() || isHidden()) &&
+                            self.processIdentifier == getpid()) return NO;
+                        return ((BOOL(*)(id, SEL, NSApplicationActivationOptions))origIMP)(self, sel, opts);
+                    }));
+            } else {
+                method_setImplementation(m, imp_implementationWithBlock(
+                    ^BOOL(NSRunningApplication *self, id fromApp, NSApplicationActivationOptions opts) {
+                        if ((shouldSuppress() || isHidden()) &&
+                            self.processIdentifier == getpid()) return NO;
+                        return ((BOOL(*)(id, SEL, id, NSApplicationActivationOptions))origIMP)(self, sel, fromApp, opts);
+                    }));
+            }
+        }
     }
 }

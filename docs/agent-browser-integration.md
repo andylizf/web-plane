@@ -21,7 +21,9 @@ practice they are **orthogonal and complementary**:
 
 The pairing is: **agent-browser as the hands, web-plane as the disguise.** Point
 agent-browser at web-plane's hidden real Chrome over CDP and you get agent-browser's
-ergonomics with web-plane's undetectability, invisibly, without stealing the user's focus.
+ergonomics with web-plane's undetectability, invisibly, and without stealing the user's focus
+(which took suppressing an AppKit activation the window hooks never saw — see
+`window-and-focus.md`).
 
 ## Verified feasibility (not theoretical)
 
