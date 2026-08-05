@@ -286,7 +286,12 @@ static void init(void) {
                         object:nil
                          queue:nil
                     usingBlock:^(NSNotification *note) {
-            if (isHidden() || shouldSuppress()) yieldFocusBack();
+            // Hidden flag only, for the same reason as the activation hook: the
+            // suppress flag can outlive CDP coming up, and `show` never clears
+            // it. Including it here made `show` undo itself — it activates the
+            // app as its last step, this fired on that activation, and the
+            // foreground went straight back to the previous app.
+            if (isHidden()) yieldFocusBack();
         }];
     }
 
@@ -327,7 +332,17 @@ static void init(void) {
         if (m && strcmp(method_getTypeEncoding(m), "v24@0:8@16") == 0) {
             IMP origIMP = method_getImplementation(m);
             method_setImplementation(m, imp_implementationWithBlock(^(NSApplication *self, id info) {
-                if (shouldSuppress() || isHidden()) return;
+                // Gated on the hidden flag ALONE, never on the suppress flag.
+                // The two mean different things: the suppress flag is launch-time
+                // window handling, cleared by the playwright patch once CDP is up,
+                // while the hidden flag is the standing hide/show state that
+                // `show` clears (lib/window.js clears the hidden flag and
+                // deliberately leaves the suppress file alone). Gating activation
+                // on both made `show` unable to raise the app whenever the launch
+                // flag outlived CDP — the window came back opaque and still buried,
+                // failing three integration tests at once. Launch is still covered:
+                // the constructor creates both flags, so isHidden() is true then too.
+                if (isHidden()) return;
                 ((void(*)(id, SEL, id))origIMP)(self, sel, info);
             }));
         }
