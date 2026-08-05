@@ -41,9 +41,43 @@ static BOOL isHidden(void) {
     return access(hiddenPath, F_OK) == 0;
 }
 
+// Where a window sat before it was parked offscreen, so `show` can put it back.
+//
+// Parking is half of hiding (the half that stops an invisible window swallowing
+// clicks, 401153b) but nothing used to undo it: SIGUSR2 restored alpha only, and
+// the windows still came back because `show` separately repositions them over
+// CDP. That covers every window Chrome knows about — and silently misses the ones
+// it does not. macOS injects windows into the process that Chrome never sees, and
+// the Screen Time lockout panel is one of them: measured after `show`, the
+// lockout window was alpha 1 and still at (-9999, 10181), i.e. visible in every
+// sense the API reports and physically off the display. The user gets a black
+// window with no explanation and cannot click "Ignore Limit", because the button
+// is a screen away.
+static const void *kParkedOriginKey = &kParkedOriginKey;
+
 static void cloak(NSWindow *w) {
+    // Record the real origin once. Re-cloaking an already-parked window must not
+    // overwrite it with (-9999, -9999), or the way home is lost.
+    if (!objc_getAssociatedObject(w, kParkedOriginKey)) {
+        NSPoint o = [w frame].origin;
+        if (o.x > -9000.0 && o.y > -9000.0) {
+            objc_setAssociatedObject(w, kParkedOriginKey,
+                                     [NSValue valueWithPoint:o],
+                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
+    }
     [w setAlphaValue:0.0];
     [w setFrameOrigin:NSMakePoint(-9999, -9999)];
+}
+
+// Undo the parking half. Safe to call on a window that was never parked (no
+// association, nothing happens) and on one Chrome will reposition anyway over
+// CDP — that lands on the same or a better place a moment later.
+static void unpark(NSWindow *w) {
+    NSValue *v = objc_getAssociatedObject(w, kParkedOriginKey);
+    if (!v) return;
+    [w setFrameOrigin:[v pointValue]];
+    objc_setAssociatedObject(w, kParkedOriginKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 
 // Cloaking hides windows. It cannot stop the app from being activated, because
@@ -134,6 +168,11 @@ static void handleSIGUSR2(int sig) {
             // correct bounds (a miniaturized window keeps both).
             if ([w isMiniaturized]) [w deminiaturize:nil];
             [w setAlphaValue:1.0];
+            // Third act, added after the first two proved insufficient: bring it
+            // back from (-9999, -9999). Without this a window Chrome does not
+            // manage — a system-injected panel such as Screen Time's lockout —
+            // reports itself fully shown while sitting off the display.
+            unpark(w);
         }
     });
 }
