@@ -30,6 +30,17 @@ const MISLEADING_PROXIES = {
 
 const { command, globalArgs, commandArgs } = parseInvocation(rawArgs);
 
+// The Princeton VPN renewal daemon runs as root, while its browser is owned by
+// the console user's LaunchAgent.  A root-side `eval` cannot attach to that
+// user session reliably: playwright-cli creates a separate root Chrome and an
+// about:blank tab on each retry.  Refuse that one unsafe crossing at the
+// web-plane boundary. Root may still close/status the session during cleanup.
+if (process.getuid?.() === 0 && command === 'eval' &&
+    rawArgs.some((arg) => arg === '-s=princeton-vpn' || arg === '--session=princeton-vpn')) {
+  console.error('web-plane: refusing root eval for session princeton-vpn; use its user LaunchAgent');
+  process.exit(1);
+}
+
 // Version before help: `--version` carries no command word, so a help check that
 // only looked for a missing command answered it with the whole usage screen.
 if (rawArgs.includes('--version') || rawArgs.includes('-v')) {

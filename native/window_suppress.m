@@ -1,6 +1,6 @@
 // Zero-flash Chrome: suppress window show until signal file is removed.
 // Signal file: /tmp/.chrome-suppress-<pid>
-// When file exists → miniaturize instead of showing
+// When file exists → order normally but fully transparent and offscreen
 // When file deleted (by Playwright after CDP ready) → pass through
 //
 // Post-launch hide/show via Unix signals:
@@ -78,8 +78,16 @@ static void init(void) {
     // would leave hiddenPath empty forever (initPaths early-returns once the
     // flag is set), so isHidden() could never see the hidden marker.
     initPaths();
-    // Create suppress file immediately (launch-time window suppression).
+    // Create both flags before Chrome constructs its first window.  The launch
+    // flag is consumed by the Playwright patch once CDP is ready; the standing
+    // hidden flag remains until an explicit `web-plane show`.  Previously the
+    // launch hook called miniaturize:, which kept the content window out of
+    // CGWindowList but still produced a visible macOS/Dock minimize animation.
+    // Starting in the same alpha-zero/offscreen state used by normal `hide`
+    // removes that animation while keeping Chrome's window bookkeeping true.
     FILE *f = fopen(signalPath, "w");
+    if (f) fclose(f);
+    f = fopen(hiddenPath, "w");
     if (f) fclose(f);
 
     // Register signal handlers for post-launch hide/show
@@ -100,7 +108,9 @@ static void init(void) {
         if (i < 2) {
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
                 if (shouldSuppress()) {
-                    [self miniaturize:nil];
+                    cloak(self);
+                    ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
+                    cloak(self);
                     return;
                 }
                 ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
@@ -109,7 +119,9 @@ static void init(void) {
         } else {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
                 if (shouldSuppress()) {
-                    [self miniaturize:nil];
+                    cloak(self);
+                    ((void(*)(id, SEL))origIMP)(self, sel);
+                    cloak(self);
                     return;
                 }
                 ((void(*)(id, SEL))origIMP)(self, sel);
