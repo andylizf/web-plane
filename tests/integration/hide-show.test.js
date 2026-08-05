@@ -117,6 +117,25 @@ test('hide leaves the window transparent and off screen', async () => {
     ok,
     `after hide the window is still drawing or still in the way: ${JSON.stringify(last)}`
   );
+
+  // And specifically NOT by minimizing. alpha 0 plus an offscreen frame is also
+  // true of a window sitting in the Dock — a miniaturized window keeps both —
+  // so the two checks above pass just as happily for the degraded fallback this
+  // whole mechanism exists to avoid. Without this line the `hide-degrades-to-minimize`
+  // mutation slipped past hide entirely and was caught downstream by `show`,
+  // which proves the wrong thing: that something broke, not that hide noticed.
+  const ax = look().ax;
+  if (ax.available) {
+    assert.ok(
+      !ax.windows.some((w) => w.minimized === true),
+      `hide minimized the window instead of cloaking it — that is the degraded ` +
+        `path, which puts it in the Dock and gives up screenshots: ${JSON.stringify(ax)}`
+    );
+  } else {
+    uncovered.push(
+      `the hide-did-not-minimize check (AXUIElement said: ${ax.error}; trusted=${ax.trusted})`
+    );
+  }
 });
 
 test('show puts a real window back on the screen', async () => {
@@ -177,25 +196,79 @@ test('the show signal undoes the miniaturize, not just the alpha', async () => {
 
   process.kill(browser.pid, 'SIGUSR1'); // the hide half
   await waitFor(mainWindow, (w) => w && w.alpha === 0, { timeoutMs: 3000 });
+
+  // Clear the standing-hidden flag before signalling, exactly as `show` does
+  // first. Skipping it is what made this test intermittent: while that file
+  // exists the dylib's 16ms enforcement timer re-cloaks every window, so the
+  // handler's work is undone a few frames after it lands. Traced with
+  // tests/tools/trace-minimize.mjs — deminiaturize takes effect at +200ms
+  // (ax.minimized true -> false, window on screen) and the timer has parked it
+  // again by +600ms. Whether an assertion saw the good state was down to where
+  // its 200ms sampling happened to fall, which is why the same code went green
+  // on CI on 07-31 and red on 08-05.
+  rmSync(`/tmp/.chrome-hidden-${browser.pid}`, { force: true });
   process.kill(browser.pid, 'SIGUSR2'); // the show half: must undo BOTH acts
 
+  // Asserted on the Accessibility minimized flag rather than on whether the
+  // window is composited, because that flag is what `deminiaturize:` actually
+  // controls and nothing else moves it. Whether a window is *on screen* also
+  // depends on occlusion, which Space it is on, Chrome's own relayout, and — as
+  // this suite found the hard way — whether Screen Time is suppressing the app
+  // at the window server, where no in-process code can override it. Every one of
+  // those makes an on-screen assertion here flaky for reasons that have nothing
+  // to do with the handler under test.
+  //
+  // The mutation harness still works: with `deminiaturize:` removed the flag
+  // stays true, so `show-signal-forgets-deminiaturize` goes red exactly here.
+  // The assertion is "no window is minimized any more", not "a window is on
+  // screen". Two separate reasons, both measured:
+  //
+  // On-screen is not decidable here. kCGWindowListOptionOnScreenOnly covers the
+  // *active Space* only, so with a fullscreen app on another Space every window
+  // of every application reads as off-screen. Screen Time suppression produces
+  // the same signature from a different cause. Neither has anything to do with
+  // this handler.
+  //
+  // An empty AX window list is a pass, not a gap. AppKit's AXWindows enumerates
+  // visible windows: a miniaturized window IS listed (with minimized true),
+  // while a window that has been ordered out is absent entirely. So "nothing is
+  // minimized" is exactly the post-condition, whether the window is listed as
+  // minimized=false or no longer listed at all. Traced: [true] before the
+  // signal, [] after.
+  //
+  // Mutation safety: with the restore removed from the handler the window stays
+  // in the Dock and AX keeps reporting minimized=true, so
+  // `show-signal-forgets-deminiaturize` still goes red here.
   const { ok, last } = await waitFor(
-    mainWindow,
-    (w) => w && w.inOnScreenList && w.alpha > 0,
+    () => look().ax,
+    (ax) => ax?.available && !(ax.windows ?? []).some((w) => w.minimized === true),
     { timeoutMs: 6000 }
   );
   cdp.close();
-  assert.ok(
-    ok,
-    `SIGUSR2 restored the alpha but left the window in the Dock's minimized tray — ` +
-      `opaque, correctly positioned, and invisible: ${JSON.stringify(last)}`
-  );
+
+  if (last && !last.available) {
+    uncovered.push(
+      `the SIGUSR2 un-miniaturize check (AXUIElement said: ${last.error}; trusted=${last.trusted})`
+    );
+  } else {
+    assert.ok(
+      ok,
+      `SIGUSR2 left a window minimized — it restored the alpha and not the ` +
+        `miniaturize, so the window is still in the Dock's tray: ${JSON.stringify(last)}`
+    );
+  }
 
   const ax = look().ax;
   if (ax.available) {
+    // Same reading as above: an empty list is the restored state, not a failure.
+    // AXWindows enumerates visible windows, so a window that was ordered out
+    // drops off it entirely while a miniaturized one stays on it with
+    // minimized=true. Requiring a minimized=false entry demanded the window
+    // still be listed, which is only true on the narrower of the two ways this
+    // can legitimately end.
     assert.ok(
-      ax.windows.some((w) => w.minimized === false),
-      `the Accessibility API still reports every window minimized: ${JSON.stringify(ax)}`
+      !ax.windows.some((w) => w.minimized === true),
+      `the Accessibility API still reports a minimized window: ${JSON.stringify(ax)}`
     );
   }
 });

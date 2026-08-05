@@ -42,12 +42,20 @@ const MUTATIONS = [
     // Note the test named here is the signal-level one, not the end-to-end round
     // trip: on macOS 26 / Chrome 150 the CDP half of `show` deminiaturizes the
     // window on its own, so the round trip passes with this bug reverted. That
-    // was measured, not assumed — see tests/tools/probe-miniaturize.mjs.
+    // was measured, not assumed — see tests/tools/trace-minimize.mjs.
+    //
+    // The restore call is makeKeyAndOrderFront:, not deminiaturize:, and the
+    // difference is load-bearing rather than cosmetic — Chromium clears its
+    // in-flight Dock miniaturization only in makeKeyAndOrderFront: and
+    // orderOut:, so deminiaturize: is undone about a second later by
+    // _regularMinimizeToDock. Reverting this line to deminiaturize: reproduces
+    // the intermittent failure rather than a clean one, which is why the
+    // mutation removes the call outright.
     expect: 'the show signal undoes the miniaturize, not just the alpha',
     edits: [
       {
         file: 'native/window_suppress.m',
-        from: 'if ([w isMiniaturized]) [w deminiaturize:nil];',
+        from: 'if ([w isMiniaturized]) [w makeKeyAndOrderFront:nil];',
         to: '/* mutation: alpha restored, miniaturize left in place */',
       },
     ],

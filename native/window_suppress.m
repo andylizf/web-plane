@@ -166,7 +166,29 @@ static void handleSIGUSR2(int sig) {
             // Chrome reports windowState normal (it never saw the minimize, we
             // did it behind its back), and CGWindowList reports alpha 1 with
             // correct bounds (a miniaturized window keeps both).
-            if ([w isMiniaturized]) [w deminiaturize:nil];
+            // makeKeyAndOrderFront:, deliberately not deminiaturize:.
+            //
+            // Chromium overrides -miniaturize: to set _miniaturizationInProgress
+            // and start an async round-trip with the Dock, then checks that flag
+            // in -_regularMinimizeToDock. Its own comment records why: AppKit
+            // does not cancel an in-flight miniaturize, so the Dock call lands
+            // later and minimizes the window anyway. Chromium disarms it in
+            // exactly two overrides — makeKeyAndOrderFront: and orderOut: — and
+            // deminiaturize: is not one of them
+            // (components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm).
+            //
+            // So deminiaturize: restored the window and then lost it about a
+            // second later, when _regularMinimizeToDock ran with the flag still
+            // set. Measured: on screen at +200ms, gone by +600ms, and afterwards
+            // absent from the Accessibility list because the end state is
+            // ordered-out rather than miniaturized. Whether an assertion caught
+            // the good frame was luck, which is what made this test alternate
+            // green and red on unchanged code.
+            //
+            // CDP's `windowState: normal` is not an alternative: it reaches
+            // NativeWidgetMac::Restore() -> SetMiniaturized(false) ->
+            // [window_ deminiaturize:nil], the same call with the same race.
+            if ([w isMiniaturized]) [w makeKeyAndOrderFront:nil];
             [w setAlphaValue:1.0];
             // Third act, added after the first two proved insufficient: bring it
             // back from (-9999, -9999). Without this a window Chrome does not

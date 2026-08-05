@@ -77,13 +77,21 @@ async function startFocusmon(logPath) {
   return proc;
 }
 
-function chromeActivations(logPath) {
+/**
+ * Activations belonging to one pid.
+ *
+ * Filtered by pid rather than by app name because the observer is machine-wide:
+ * it sees the user's own Chrome, and — when suites run side by side — the
+ * browser another test file launched. Matching on the name alone attributed
+ * those to this test and failed it for someone else's window. The suite is now
+ * serial as well (`--test-concurrency=1`, since these tests own the screen), but
+ * the pid filter is what makes the assertion correct rather than merely lucky.
+ */
+function chromeActivations(logPath, pid) {
   const lines = readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean);
   return lines
     .map((l) => JSON.parse(l))
-    .filter(
-      (e) => (e.event === 'activate' || e.event === 'poll-front') && /chrome/i.test(e.app ?? '')
-    );
+    .filter((e) => (e.event === 'activate' || e.event === 'poll-front') && e.pid === pid);
 }
 
 before(async () => {
@@ -120,7 +128,7 @@ test('a hidden launch never takes the foreground', async () => {
     'the browser is not running, so a clean focus log proves nothing'
   );
 
-  const stolen = chromeActivations(logPath);
+  const stolen = chromeActivations(logPath, browser.pid);
   assert.deepEqual(
     stolen.map((e) => `${e.t} ${e.app} (policy=${e.policy})`),
     [],

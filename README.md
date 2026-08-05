@@ -245,10 +245,9 @@ race, and a single green run has already been wrong twice. A dead browser also
 produces a perfectly clean focus log, so liveness is part of the verdict — no
 live process reports `INVALID` rather than `CLEAN`.
 
-Two cases in `hide-show.test.js` are known-red and predate this suite's current
-state — one is structurally flaky (all seven share a browser and run in order),
-one fails only on the CDP-minimize path. Both fail identically on an unpatched
-dylib. See [`docs/window-and-focus.md`](docs/window-and-focus.md).
+`test:integration` runs serially (`--test-concurrency=1`): these tests own the
+screen, the foreground and the Dock, so two files running at once observe each
+other's browsers and fail for the wrong reasons.
 
 `tests/tools/trace-window.mjs` walks one session through launch → hide → show and
 prints what Chrome, CoreGraphics and the Accessibility API each say about the

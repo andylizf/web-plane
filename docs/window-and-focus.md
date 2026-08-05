@@ -146,26 +146,64 @@ still exists with the expected type encoding — that one needs no browser and n
 display, so it can fail loudly on a new macOS before anyone notices focus theft
 has quietly returned.
 
-## Two integration failures that are not this fix
+## The Dock race: why `show` must use makeKeyAndOrderFront:
 
-Both predate this work and both were confirmed against the unpatched dylib.
-Neither should be read as "the focus fix broke something".
+`deminiaturize:` looks like the obvious way to undo a minimize. It is the wrong
+call, and the reason is in Chromium's own source
+(`components/remote_cocoa/app_shim/native_widget_mac_nswindow.mm`):
 
-**`hide/show` is flaky, and the flakiness is structural.** All seven cases in
-`hide-show.test.js` share one browser instance created in `before()`, run in
-order, and inherit each other's state, so one timing wobble cascades. Same code,
-three consecutive local runs: 3/4, 4/3, 5/2. It is not environmental drift —
-CI passed on 07-31 and failed on 08-05 with the *same* runner image
-(`20260728.0273.1`) and the same macOS (26.5.2 / 25F84).
+```objc
+- (void)miniaturize:(id)sender {
+  _miniaturizationInProgress = YES;      // async round trip with the Dock
+  [super miniaturize:sender];
+}
+- (void)_regularMinimizeToDock {
+  if (!_miniaturizationInProgress) { return; }   // cancelled — do nothing
+  _miniaturizationInProgress = NO;
+  [super _regularMinimizeToDock];                // otherwise: minimize anyway
+}
+- (void)makeKeyAndOrderFront:(id)sender { _miniaturizationInProgress = NO; ... }
+- (void)orderOut:(id)sender             { _miniaturizationInProgress = NO; ... }
+```
 
-**`test 4` fails locally, and the cause is not established.** It minimizes over
-CDP and then requires SIGUSR2 alone to bring the window back. Measured: alpha is
-restored, `deminiaturize:` does not put the window back on screen, and neither
-does a subsequent CDP `windowState: normal`. The unpatched dylib fails it
-identically. An earlier draft of this document blamed a Chrome behaviour change;
-that was a guess with nothing behind it and has been removed. What is known is
-the boundary: it fails only on the CDP-minimize path, while the cloak path that
-`hide`/`show` actually use (test 3) passes.
+Chromium's comment names the AppKit bug it is working around: AppKit does not
+cancel an in-flight miniaturize, so the Dock call lands later and minimizes the
+window regardless. Chromium disarms that in exactly two overrides —
+`makeKeyAndOrderFront:` and `orderOut:` — and **`deminiaturize:` is not one of
+them**.
 
-**`test 1` fails on CI, not locally.** It also fails on commits that change only
-documentation, so it is not code under test either. Unexamined.
+So a handler calling `deminiaturize:` restores the window and then loses it
+about a second later. Measured with `tests/tools/trace-minimize.mjs`: on screen
+at +200ms, gone by +600ms, and thereafter absent from the Accessibility list
+because the end state is *ordered out*, not miniaturized. Whether an assertion
+saw the good frame was luck, which is what made the suite alternate green and
+red on unchanged code — CI passed on 07-31 and failed on 08-05 with the same
+runner image (`20260728.0273.1`) and the same macOS (26.5.2 / 25F84). No version
+drift was involved; a race is exactly what behaves that way.
+
+CDP is not an escape hatch either. `Browser.setWindowBounds {windowState:
+'normal'}` reaches `NativeWidgetMac::Restore()` → `SetMiniaturized(false)` →
+`[window_ deminiaturize:nil]` — the same call, the same race. And once Chrome
+believes the window is already normal, `browser_handler.cc` takes no branch at
+all, so the request is a literal no-op.
+
+## Two measurement traps this cost time on
+
+**`kCGWindowListOptionOnScreenOnly` covers the active Space only.** With a
+fullscreen app on another Space, every window of every application reads as
+off-screen. That is indistinguishable from a window that failed to restore, and
+it is why the assertions here are written against the Accessibility minimized
+flag instead of on-screen-ness.
+
+**An empty AX window list is not an error.** `AXWindows` enumerates *visible*
+windows: a miniaturized window is listed with `minimized=true`, while a window
+that has been ordered out is not listed at all. "Nothing is minimized" is
+therefore the correct post-condition for a restore — asserting that some window
+reports `minimized=false` demands it still be listed, which only holds on one of
+the two legitimate outcomes.
+
+A third, from `ui/base/ui_base_features.cc` and the bridge: with
+`kAlphaInsteadOfCATransaction` (default on Mac) Chromium parks a window's alpha
+in `pending_alpha_value_` and restores it only when a correctly-sized compositor
+frame arrives. External alpha writes are not authoritative — Chromium overwrites
+them when the frame lands.

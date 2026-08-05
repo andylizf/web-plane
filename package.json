@@ -23,7 +23,7 @@
     "check": "node scripts/check-syntax.mjs",
     "test:unit": "node --test \"tests/unit/*.test.js\"",
     "test:doctor": "node --test \"tests/doctor/*.test.js\"",
-    "test:integration": "node --test \"tests/integration/*.test.js\"",
+    "test:integration": "node --test --test-concurrency=1 \"tests/integration/*.test.js\"",
     "test:mutation": "node tests/mutation/run.js"
   },
   "engines": {
