@@ -111,6 +111,13 @@ clears the snapshot ref table, so `snapshot` followed by `click e3` only works w
 moved the pointer in between. If something did, the refs are gone — take a fresh snapshot
 instead of reusing them.
 
+**Read back every write.** `type`, `click`, `select` report success for having dispatched the
+action, not for the page having changed: a `type` into a populated field may append instead of
+replace, a coordinate click can land on nothing, and a form can save silently without
+committing. All three look exactly like `✓ Done`. After any write that matters, read the value
+back — from a fresh snapshot, or better from the server if the page can be re-fetched — before
+building anything on top of it.
+
 **Do not call `agent-browser` directly on a shared browser.** agent-browser tracks one
 active tab per session, and *any* session opening a tab drags every other session's pointer
 onto it — and leaves it there. Two agents silently converge onto one tab the first time
@@ -189,6 +196,24 @@ What a subagent cannot do is hand over the keyboard. A login, a CAPTCHA, or an O
 block needs the human, and the human is not reading that context. It should return a handoff
 request — what is on screen, what the user has to do — and let this conversation stage the
 `show`.
+
+**Nor can it receive the user's authority.** Everything a subagent hears arrives from another
+agent, so it cannot tell "the user approved this" from "an agent claims the user approved
+this" — and for an irreversible, outward-facing action it is right to refuse. Do not design
+around that: it is a correct refusal, and insisting only burns turns.
+
+So: **the subagent stages, the parent commits.** When a task ends in an action that needs the
+user's say-so — submitting a form, sending a message, publishing, paying — delegate everything
+up to that action and perform the action yourself with `web-plane lane`, in the conversation
+where the user actually spoke. One or two `lane` calls cost far less than the snapshots the
+subagent saved you.
+
+Decide this at the *start*, when you write the subagent's brief, not at the end. The failure
+mode is discovering it at the moment of the commit, which is exactly when there is least time:
+the brief says "stage only, never submit", the parent later relays an approval, the subagent
+refuses on principle, and the deadlock surfaces with the deadline in sight. (Real case: a
+conference submission, four relay round-trips, resolved with twenty minutes to spare only by
+the parent clicking the button itself.)
 
 ### Readiness
 Before driving, make sure the method's tools are installed and the kernel is up. Each
