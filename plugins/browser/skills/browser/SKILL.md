@@ -73,15 +73,23 @@ profile shares one browser.
 - Name by identity, never by task: `-s=main`, `-s=work-alt`; not `-s=print-thing`.
 - Never spin up a throwaway profile per task. It starts logged out and never gets cleaned up.
 
-**Which profile is it?** Ask the disk, don't infer from the name:
+**Which profile is it?** Almost always the answer is "the one they already use", and you
+should reach for `web-plane profiles` to *see* the inventory, never to be told which to pick:
 ```
-web-plane profiles            # each profile: running/idle, size, sites it holds a session for
-web-plane profiles x.com      # → the profile already logged into x.com, if any
+web-plane profiles            # each profile: running/idle, size, hosts it looks to hold a session for
 ```
-Two ways this goes wrong even when you know the rule above. First, `web-plane list` is *not*
-a web-plane command — it proxies to playwright-cli and prints that tool's session registry,
-which omits profiles it never opened and keeps names whose dirs are long gone. It reads as
-authoritative and costs a login you didn't need. Second, if your check for an existing
+The LOGGED INTO column is evidence, not a verdict, and there is no per-site query — there used
+to be, and removing it is the fix for a real incident. It answered "no profile holds a session
+for princeton.edu" about a profile that was fully logged in, because session cookie names are
+invented per application (Entra ships `ESTSAUTH`, Shibboleth `_shibsession_<hex>`) and no list
+can enumerate them. **Read a missing host as "not detected", never as "logged out."** The two
+errors do not cost the same: a false "logged out" is what sends you off to create the duplicate
+profile this whole section exists to prevent.
+
+Two more ways this goes wrong even when you know the rule above. First, `web-plane list` is
+*not* a web-plane command — it proxies to playwright-cli and prints that tool's session
+registry, which omits profiles it never opened and keeps names whose dirs are long gone. It
+reads as authoritative and costs a login you didn't need. Second, if your check for an existing
 profile is shaped like `grep <the-name-I-was-about-to-create>`, you are confirming a decision
 rather than discovering one; by construction it cannot find the profile you should reuse.
 

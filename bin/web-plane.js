@@ -72,10 +72,10 @@ Browser control (proxied to playwright-cli):
   ...                     All other playwright-cli commands are supported
 
 Profiles (login identities):
-  profiles [site...]      Every profile on disk: running/idle, size, and which
-                          sites it already holds a session for. With a site,
-                          answers "which profile is logged into x.com?".
-                          Pick a profile by what's inside it, never by its name.
+  profiles                Every profile on disk: running/idle, size, and which
+                          hosts it looks to hold a session for. An inventory, not
+                          a verdict — read a missing host as "not detected", and
+                          default to the one identity profile the user has.
 
 Window management:
   show                    Make browser window visible
@@ -113,8 +113,7 @@ Examples:
   web-plane hide
   web-plane show
   web-plane doctor
-  web-plane profiles                # which profile is already logged into what
-  web-plane profiles x.com          # → the profile holding an x.com session
+  web-plane profiles                # inventory of profiles and what each holds
   web-plane -s=work attach https://example.com   # start + open + connect, one step
   web-plane cdp                     # then: agent-browser --session <name> connect <port>`);
   process.exit(0);
@@ -164,7 +163,7 @@ if (command === 'install') {
   await cdp(parseSessionFlag(rawArgs), commandArgs[0] ?? null);
 } else if (command === 'profiles') {
   const { profiles } = await import('../lib/profiles.js');
-  process.exit(profiles(commandArgs.filter((a) => !a.startsWith('-'))));
+  process.exit(profiles());
 } else if (MISLEADING_PROXIES[command]) {
   const { instead, why } = MISLEADING_PROXIES[command];
   console.error(
