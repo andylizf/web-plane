@@ -75,6 +75,26 @@ const MUTATIONS = [
     ],
   },
   {
+    name: 'verifier-mistakes-a-sleeping-display-for-a-dock',
+    describes:
+      'removes the blind-spot guard: the verifier goes back to reading an empty on-screen ' +
+      'list as "this window is miniaturized", which it is for every window of every ' +
+      'application while the display sleeps',
+    // A unit suite, not the integration one: the state this mutation is about
+    // cannot be staged with a browser, because staging it means putting the
+    // display to sleep — which locks the machine on any Mac with an immediate
+    // lock delay, and would blind the integration suite's own assertions anyway.
+    suite: 'tests/unit/window-verify.test.js',
+    expect: 'a sleeping display is not evidence that our window is in the Dock',
+    edits: [
+      {
+        file: 'lib/window.js',
+        from: '  if (compositorBlindSpot(screen)) return null;',
+        to: '  /* mutation: an idle compositor is read as a fact about this window */',
+      },
+    ],
+  },
+  {
     name: 'hide-degrades-to-minimize',
     describes:
       'stops `hide` from cloaking (as when the DYLD hook is not loaded at all), leaving a ' +
@@ -146,7 +166,12 @@ for (const mutation of selected) {
   copyCheckout(root);
   applyEdits(root, mutation.edits);
 
-  const run = spawnSync(process.execPath, ['--test', 'tests/integration/hide-show.test.js'], {
+  // Most mutations are judged by the integration suite, which is the only place a
+  // real browser and the real window server meet. A mutation whose state cannot be
+  // staged with a browser names its own suite instead.
+  const suite = mutation.suite ?? 'tests/integration/hide-show.test.js';
+  console.log(`    judged by: ${suite}`);
+  const run = spawnSync(process.execPath, ['--test', suite], {
     cwd: root,
     encoding: 'utf8',
     env: process.env,

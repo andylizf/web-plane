@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
 import { runCli } from '../helpers/cli.js';
-import { screenWindows } from '../../lib/window.js';
+import { compositorBlindSpot, screenWindows } from '../../lib/window.js';
 import {
   buildProbe,
   buildRuntime,
@@ -290,16 +290,27 @@ test("web-plane's own window-server query notices a window in the Dock", async (
 
   const seen = await waitFor(
     () => screenWindows(browser.pid),
-    (s) => s !== null && s.every((w) => !(w.onScreenCount > 0)),
+    (s) => s !== null && s.windows.every((w) => !w.onScreen),
     { timeoutMs: 4000 }
   );
   try {
     assert.ok(seen.last, 'web-plane could not query the window server at all');
+    // Checked first, because it is the reason this assertion can lie: while the
+    // display sleeps or the screen is locked, NOTHING is on screen for any
+    // application, so "no window of ours is on screen" is true no matter what the
+    // browser is doing and the test would pass while proving nothing.
+    assert.equal(
+      compositorBlindSpot(seen.last),
+      null,
+      `the compositor is not drawing, so this assertion cannot mean anything: ` +
+        `${compositorBlindSpot(seen.last)}`
+    );
     assert.ok(
       seen.ok,
-      `web-plane's window-server query still counts ${seen.last[0]?.onScreenCount} on-screen ` +
-        `window(s) for a browser whose window is in the Dock, so 'show' cannot tell a ` +
-        `miniaturized window from a visible one: ${JSON.stringify(seen.last)}`
+      `web-plane's window-server query still reports ` +
+        `${seen.last.windows.filter((w) => w.onScreen).length} on-screen window(s) for a browser ` +
+        `whose window is in the Dock, so 'show' cannot tell a miniaturized window from a ` +
+        `visible one: ${JSON.stringify(seen.last)}`
     );
   } finally {
     // Put the window back even when this fails, so the next test starts from the

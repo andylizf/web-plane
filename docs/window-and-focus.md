@@ -187,13 +187,29 @@ CDP is not an escape hatch either. `Browser.setWindowBounds {windowState:
 believes the window is already normal, `browser_handler.cc` takes no branch at
 all, so the request is a literal no-op.
 
-## Two measurement traps this cost time on
+## Three measurement traps this cost time on
 
 **`kCGWindowListOptionOnScreenOnly` covers the active Space only.** With a
 fullscreen app on another Space, every window of every application reads as
 off-screen. That is indistinguishable from a window that failed to restore, and
 it is why the assertions here are written against the Accessibility minimized
 flag instead of on-screen-ness.
+
+**The same list is empty while the display sleeps.** Not the window's state — the
+compositor's: nothing is being drawn, so no window of any application appears on
+it. `show` used to read that as a fact about one window and printed `WARNING —
+'show' ran but the window is NOT verifiably visible ... miniaturized — it is in
+the Dock's minimized tray` over a window that was on screen the whole time. It
+did so three times in four minutes on 2026-08-10, all three inside one display-off
+interval in `pmset -g log` (16:23:05 → 16:27:46), with the next `show` clean after
+the wake. The reader believed it and spent fifteen minutes repairing a working
+browser, which is the real cost of a confident wrong message.
+
+`lib/window.js` now asks whether *anything* is on screen before drawing a
+conclusion about one window (`compositorBlindSpot`), and reports an ambiguous
+reading as ambiguous. `tests/tools/probe-display-sleep.mjs` measures the state
+with the product's own query; on a Mac whose screen lock is not immediate,
+`--sleep-display` stages it directly and wakes the display afterwards.
 
 **An empty AX window list is not an error.** `AXWindows` enumerates *visible*
 windows: a miniaturized window is listed with `minimized=true`, while a window
