@@ -82,7 +82,7 @@ test('a missing suppression dylib is caught', () => {
   assert.match(r.stdout, /not compiled/);
 });
 
-test('version drift is reported as a warning, not a failure', () => {
+test('a clone behind system Chrome is reported as a warning, not a failure', () => {
   // Stealth still works with a stale clone; it is a fingerprinting tell, not a
   // broken install. Reporting it as fatal would train people to ignore doctor.
   const system = systemChromeVersion();
@@ -90,7 +90,53 @@ test('version drift is reported as a warning, not a failure', () => {
   const r = doctorOn('drift', { cloneVersion: '1.0.0' });
   assert.equal(r.code, 0, `drift must not fail the check:\n${r.all}`);
   assert.match(r.stdout, /⚠ clone version/);
-  assert.match(r.stdout, new RegExp(`1\\.0\\.0 ≠ system ${system.replace(/\./g, '\\.')}`));
+  // The direction has to be in the text: "≠ system" was true of both directions
+  // and only one of them is worth acting on.
+  assert.match(r.stdout, new RegExp(`1\\.0\\.0 — BEHIND system ${system.replace(/\./g, '\\.')}`));
+  assert.match(r.stdout, /fix: web-plane install/);
+});
+
+test('a clone AHEAD of system Chrome is not a defect and prescribes nothing', () => {
+  // What a self-updating clone leaves behind, and the false alarm that started
+  // this: doctor said `⚠ 151.0.7922.76 ≠ system 150.0.7871.189, fix: web-plane
+  // install`, install said `==> Chrome clone up to date`, and the loop repeated.
+  // Chrome's updater writes a new framework into whichever bundle it is running
+  // from, so the clone runs ahead of the system Chrome on its own; re-cloning
+  // would downgrade it.
+  const system = systemChromeVersion();
+  assert.ok(system, 'could not read the system Chrome version');
+  const r = doctorOn('ahead', { cloneVersion: '999.0.0' });
+  assert.equal(r.code, 0, `a clone ahead of system Chrome must not fail the check:\n${r.all}`);
+  assert.match(r.stdout, /✓ clone version/);
+  assert.match(r.stdout, new RegExp(`999\\.0\\.0 — ahead of system ${system.replace(/\./g, '\\.')}`));
+  // The whole point: no fix is offered, because install would decline to act.
+  const versionLine = r.stdout.split('\n').findIndex((l) => /clone version/.test(l));
+  assert.doesNotMatch(
+    r.stdout.split('\n')[versionLine + 1] ?? '',
+    /fix:/,
+    'doctor must not prescribe a fix its own installer treats as a no-op'
+  );
+});
+
+test('doctor and install agree about whether the clone needs re-cloning', () => {
+  // Not a wording test: the two commands answer from one function now, and this
+  // is the assertion that keeps them there. doctor's row is a ⚠ with a fix if and
+  // only if cloneRefresh().needed, which is the branch install takes.
+  const system = systemChromeVersion();
+  for (const [name, version, needed] of [
+    ['agree-behind', '1.0.0', true],
+    ['agree-ahead', '999.0.0', false],
+    ['agree-match', system, false],
+  ]) {
+    const r = doctorOn(name, { cloneVersion: version });
+    const warned = /⚠ clone version/.test(r.stdout);
+    assert.equal(
+      warned,
+      needed,
+      `clone ${version} vs system ${system}: doctor ${warned ? 'warns' : 'does not warn'} but ` +
+        `install would ${needed ? '' : 'not '}re-clone:\n${r.all}`
+    );
+  }
 });
 
 test('breaking two layers reports both, not just the first', () => {
