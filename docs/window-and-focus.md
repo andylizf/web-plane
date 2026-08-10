@@ -211,6 +211,16 @@ reading as ambiguous. `tests/tools/probe-display-sleep.mjs` measures the state
 with the product's own query; on a Mac whose screen lock is not immediate,
 `--sleep-display` stages it directly and wakes the display afterwards.
 
+**A locked screen raises the machine-wide count instead of lowering it.** Measured
+by that tool across a real lock (2026-08-10, 17:21:55–17:22:56 local): 11–12
+windows on screen while unlocked, 41–42 while locked, because the lock screen
+composites a crowd of its own windows. Every *application* window still reads as
+off-screen. So "is anything on screen?" cannot detect a locked Mac, and
+`compositorBlindSpot` reads `CGSSessionScreenIsLocked` from
+`CGSessionCopyCurrentDictionary` for that case specifically. The two checks are
+not redundant; dropping either one restores the false positive on one of the two
+states.
+
 **An empty AX window list is not an error.** `AXWindows` enumerates *visible*
 windows: a miniaturized window is listed with `minimized=true`, while a window
 that has been ordered out is not listed at all. "Nothing is minimized" is

@@ -140,11 +140,15 @@ test('a sleeping display is reported as inconclusive rather than passed over', (
 });
 
 test('a locked screen is inconclusive too, though other windows are composited', () => {
-  // Not covered by the count: with the display awake and the screen locked, the
-  // lock window is on screen, so the machine-wide count is small but nonzero
-  // while every application window still reads as off-screen.
+  // Not covered by the count, and the numbers here are measured rather than
+  // guessed: sampled across a real lock on 2026-08-10 (17:21:55-17:22:56 local,
+  // tests/tools/probe-display-sleep.mjs) the machine-wide count went UP, from
+  // 11-12 unlocked to 41-42 locked, because the lock screen composites a crowd of
+  // its own windows while every application window reads as off-screen. Hence 42
+  // below: a locked screen never trips the count, so `screenLocked` is the only
+  // thing standing between this state and a false "miniaturized".
   const state = serverState([serverWindow({ onScreen: false })], {
-    systemOnScreen: 3,
+    systemOnScreen: 42,
     screenLocked: true,
   });
   assert.equal(classifyWindow(1, chromeBounds(), state, PID), null);
