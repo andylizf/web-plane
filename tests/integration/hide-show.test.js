@@ -93,6 +93,11 @@ test('the injected hook keeps the launch window off the screen entirely', async 
     false,
     `the launch window reached the screen — DYLD injection did not take effect:\n${JSON.stringify(w)}`
   );
+  assert.equal(
+    existsSync(browser.suppressFile),
+    true,
+    `the injected hook did not receive WEB_PLANE_RUN_ID: ${browser.suppressFile} was not created`
+  );
 });
 
 test('hide leaves the window transparent and off screen', async () => {
@@ -206,7 +211,7 @@ test('the show signal undoes the miniaturize, not just the alpha', async () => {
   // again by +600ms. Whether an assertion saw the good state was down to where
   // its 200ms sampling happened to fall, which is why the same code went green
   // on CI on 07-31 and red on 08-05.
-  rmSync(`/tmp/.chrome-hidden-${browser.pid}`, { force: true });
+  rmSync(browser.hiddenFlag, { force: true });
   process.kill(browser.pid, 'SIGUSR2'); // the show half: must undo BOTH acts
 
   // Asserted on the Accessibility minimized flag rather than on whether the
@@ -346,9 +351,9 @@ test('a window opened while hidden never reaches the screen', async () => {
   assert.ok(ok, `a window became visible while the session was hidden:\n${describeWindows(last)}`);
 });
 
-test('close stops the browser and removes the flags it left in /tmp', async () => {
+test("close stops the browser and removes this run's hidden flag", async () => {
   const pid = browser.pid;
-  const hiddenFlag = `/tmp/.chrome-hidden-${pid}`;
+  const hiddenFlag = browser.hiddenFlag;
 
   const r = runCli([`-s=${SESSION}`, 'close'], { home });
   assert.equal(r.code, 0, `close failed:\n${r.all}`);
@@ -356,6 +361,6 @@ test('close stops the browser and removes the flags it left in /tmp', async () =
 
   const { ok } = await waitFor(() => isAlive(pid), (alive) => !alive, { timeoutMs: 8000 });
   assert.ok(ok, `pid ${pid} is still running after close`);
-  // A stale flag makes the *next* browser that lands on this pid look hidden.
+  // This is housekeeping now: a stale run id cannot name a later browser.
   assert.equal(existsSync(hiddenFlag), false, `${hiddenFlag} outlived the process it named`);
 });

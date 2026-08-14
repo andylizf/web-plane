@@ -1,4 +1,5 @@
 import { execFileSync, execSync, spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import { existsSync, mkdirSync, rmSync } from 'fs';
 import { createServer } from 'net';
 import { join } from 'path';
@@ -21,10 +22,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /** Everything the launch needs, compiled from *this* checkout's sources. */
 export function buildRuntime(home) {
   const runtime = join(home, '.web-plane');
+  const runDir = join(home, 'Library', 'Application Support', 'web-plane', 'run');
   const chromeApp = join(runtime, 'Chrome.app');
   const chromeBin = join(chromeApp, 'Contents', 'MacOS', 'Google Chrome');
   const dylib = join(runtime, 'window_suppress.dylib');
   mkdirSync(join(runtime, 'profiles'), { recursive: true });
+  mkdirSync(runDir, { recursive: true, mode: 0o700 });
 
   // APFS copy-on-write where available; a plain copy is only a fallback so the
   // test still runs on a non-APFS volume rather than silently skipping.
@@ -46,7 +49,7 @@ export function buildRuntime(home) {
     { stdio: 'inherit' }
   );
 
-  return { runtime, chromeApp, chromeBin, dylib, profilesDir: join(runtime, 'profiles') };
+  return { runtime, runDir, chromeApp, chromeBin, dylib, profilesDir: join(runtime, 'profiles') };
 }
 
 /** The independent observer. Compiled once per run, next to the runtime. */
@@ -117,6 +120,7 @@ export async function launchClone({ paths, session, port }) {
   const profileDir = join(paths.profilesDir, session);
   mkdirSync(profileDir, { recursive: true });
   const cdpPort = port ?? (await freePort());
+  const runId = randomUUID();
 
   const proc = spawn(
     paths.chromeBin,
@@ -136,7 +140,12 @@ export async function launchClone({ paths, session, port }) {
       'about:blank',
     ],
     {
-      env: { ...process.env, DYLD_INSERT_LIBRARIES: paths.dylib },
+      env: {
+        ...process.env,
+        DYLD_INSERT_LIBRARIES: paths.dylib,
+        WEB_PLANE_RUN_ID: runId,
+        WEB_PLANE_RUN_DIR: paths.runDir,
+      },
       stdio: ['ignore', 'ignore', 'pipe'],
       detached: false,
     }
@@ -151,7 +160,15 @@ export async function launchClone({ paths, session, port }) {
   });
 
   const version = await waitForCdp(cdpPort);
-  return { proc, pid: proc.pid, port: cdpPort, version, suppressFile: `/tmp/.chrome-suppress-${proc.pid}` };
+  return {
+    proc,
+    pid: proc.pid,
+    port: cdpPort,
+    version,
+    runId,
+    suppressFile: join(paths.runDir, `.chrome-suppress-${runId}`),
+    hiddenFlag: join(paths.runDir, `.chrome-hidden-${runId}`),
+  };
 }
 
 /** A minimal CDP client — enough to stage the states the tests need. */
@@ -183,9 +200,8 @@ export async function cdpClient(port) {
  * suppression so later windows can order front normally, then park the window
  * offscreen through CDP.
  *
- * Only this process's own suppress file is removed — the product's `rm -f
- * /tmp/.chrome-suppress-*` would reach into any other Chrome on the machine,
- * which a test must not do.
+ * Only this run's suppress file is removed; another session may be launching at
+ * the same time, and its marker is not ours to touch.
  */
 export async function finishLaunchTransition({ pid, port, suppressFile }) {
   rmSync(suppressFile, { force: true });

@@ -3,9 +3,8 @@
 // DYLD_INSERT_LIBRARIES is silently ignored for a binary that is not ad-hoc
 // signed, and a dylib whose constructor never runs injects nothing — both of
 // which degrade web-plane into "system Chrome, visible window, no stealth"
-// without any error. The dylib's constructor writes /tmp/.chrome-suppress-<pid>,
-// so printing this process's pid is enough for the caller to check whether the
-// injection took: run this with and without DYLD_INSERT_LIBRARIES and compare.
+// without any error. The dylib's constructor writes the run-id marker named by
+// WEB_PLANE_RUN_DIR, so the caller can check whether the injection took.
 #include <stdio.h>
 #include <unistd.h>
 

@@ -143,7 +143,7 @@ if (command === 'install') {
     console.log(`Session:       ${s.session ?? '(unnamed)'}`);
     console.log(`Chrome PID:    ${s.pid}`);
     console.log(`CDP port:      ${s.port}`);
-    console.log(`Window:        ${s.hidden ? 'hidden' : s.minimized ? 'minimized' : 'visible'}`);
+    console.log(`Window:        ${s.windowState}`);
     if (!s.managed) {
       console.log(
         `Suppression:   UNMANAGED — this Chrome was not launched by web-plane, so\n` +

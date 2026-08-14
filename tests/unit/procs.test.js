@@ -14,6 +14,7 @@ const { parseChromeLine, selectChrome } = await import('../../lib/procs.js');
 
 const PROFILES = paths.profilesDir;
 const CLONE = paths.chromeBin;
+const RUN_ID = '7d376d6a-4ae6-45f4-878a-f976b021d869';
 
 /** A `ps -axo pid=,command=` line, as the real one looks. */
 function psLine(pid, bin, args = '') {
@@ -31,6 +32,11 @@ test('a web-plane launch is recognised by its clone path and profile dir', () =>
   assert.equal(p.port, 51234);
   assert.equal(p.session, 'work');
   assert.equal(p.managed, true);
+});
+
+test('the launch run id is read from the browser environment', () => {
+  const p = parseChromeLine(`${ours(4242, 'work', 51234)} WEB_PLANE_RUN_ID=${RUN_ID}`);
+  assert.equal(p.runId, RUN_ID);
 });
 
 test("the user's own Chrome is never marked managed", () => {

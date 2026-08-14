@@ -1,5 +1,5 @@
 // Zero-flash Chrome: suppress window show until signal file is removed.
-// Signal file: /tmp/.chrome-suppress-<pid>
+// Signal file: ~/Library/Application Support/web-plane/run/.chrome-suppress-<run-id>
 // When file exists → order normally but fully transparent and offscreen
 // When file deleted (by Playwright after CDP ready) → pass through
 //
@@ -12,15 +12,21 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <signal.h>
+#include <limits.h>
+#include <stdlib.h>
 
-static char signalPath[256];
-static char hiddenPath[256];
+static char signalPath[PATH_MAX];
+static char hiddenPath[PATH_MAX];
 static BOOL initialized = NO;
 
 static void initPaths(void) {
     if (!initialized) {
-        snprintf(signalPath, sizeof(signalPath), "/tmp/.chrome-suppress-%d", getpid());
-        snprintf(hiddenPath, sizeof(hiddenPath), "/tmp/.chrome-hidden-%d", getpid());
+        const char *runDir = getenv("WEB_PLANE_RUN_DIR");
+        const char *runId = getenv("WEB_PLANE_RUN_ID");
+        if (runDir && runId) {
+            snprintf(signalPath, sizeof(signalPath), "%s/.chrome-suppress-%s", runDir, runId);
+            snprintf(hiddenPath, sizeof(hiddenPath), "%s/.chrome-hidden-%s", runDir, runId);
+        }
         initialized = YES;
     }
 }
@@ -41,6 +47,13 @@ static BOOL isHidden(void) {
     return access(hiddenPath, F_OK) == 0;
 }
 
+// Chromium reserves this subclass for browser frames. Native panels and other
+// AppKit windows must remain visible so the user can complete the flow they gate.
+static BOOL isBrowserWindow(NSWindow *w) {
+    Class browserWindow = NSClassFromString(@"BrowserNativeWidgetWindow");
+    return browserWindow && [w isKindOfClass:browserWindow];
+}
+
 // Where a window sat before it was parked offscreen, so `show` can put it back.
 //
 // Parking is half of hiding (the half that stops an invisible window swallowing
@@ -56,6 +69,7 @@ static BOOL isHidden(void) {
 static const void *kParkedOriginKey = &kParkedOriginKey;
 
 static void cloak(NSWindow *w) {
+    if (!isBrowserWindow(w)) return;
     // Record the real origin once. Re-cloaking an already-parked window must not
     // overwrite it with (-9999, -9999), or the way home is lost.
     if (!objc_getAssociatedObject(w, kParkedOriginKey)) {
@@ -151,7 +165,7 @@ static void yieldFocusBack(void) {
 static void handleSIGUSR1(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (NSWindow *w in [NSApp windows]) {
-            [w setAlphaValue:0.0];
+            if (isBrowserWindow(w)) [w setAlphaValue:0.0];
         }
     });
 }
@@ -159,6 +173,7 @@ static void handleSIGUSR1(int sig) {
 static void handleSIGUSR2(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (NSWindow *w in [NSApp windows]) {
+            if (!isBrowserWindow(w)) continue;
             // Hiding is TWO acts — miniaturize, then alpha 0 — so showing has to
             // undo both. Restoring only the alpha left the window genuinely
             // miniaturized, parked in the Dock's minimized tray where nobody
@@ -201,6 +216,9 @@ static void handleSIGUSR2(int sig) {
 
 __attribute__((constructor))
 static void init(void) {
+    // Every Chrome helper inherits the run id. Only the browser may create the
+    // shared markers, or a renderer born later would re-hide the whole session.
+    if (!isBrowserProcess()) return;
     // Populate signalPath AND hiddenPath. Must go through initPaths(), not a
     // bare snprintf: setting `initialized = YES` after filling only signalPath
     // would leave hiddenPath empty forever (initPaths early-returns once the
@@ -242,7 +260,7 @@ static void init(void) {
         if (i < 2) {
             BOOL isMakeKey = (i == 0);
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
-                if (shouldSuppress() || isHidden()) {
+                if (isBrowserWindow(self) && (shouldSuppress() || isHidden())) {
                     cloak(self);
                     // Making a window key is itself an activation request: the
                     // system brings the owning app forward so the key window can
@@ -265,7 +283,7 @@ static void init(void) {
             });
         } else {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
-                if (shouldSuppress()) {
+                if (isBrowserWindow(self) && shouldSuppress()) {
                     cloak(self);
                     ((void(*)(id, SEL))origIMP)(self, sel);
                     cloak(self);
@@ -289,7 +307,7 @@ static void init(void) {
         IMP origIMP = method_getImplementation(m);
         method_setImplementation(m, imp_implementationWithBlock(
             ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
-                BOOL hide = (place != NSWindowOut) && isHidden();
+                BOOL hide = (place != NSWindowOut) && isHidden() && isBrowserWindow(self);
                 if (hide) cloak(self);
                 ((void(*)(id, SEL, NSWindowOrderingMode, NSInteger))origIMP)(self, sel, place, otherWin);
                 if (hide) cloak(self);
@@ -318,6 +336,7 @@ static void init(void) {
                 // within a frame instead of leaving it there for seconds.
                 yieldFocusBack();
                 for (NSWindow *w in [NSApp windows]) {
+                    if (!isBrowserWindow(w)) continue;
                     if ([w alphaValue] > 0.0) [w setAlphaValue:0.0];
                     NSPoint o = [w frame].origin;
                     if (o.x > -9000 || o.y > -9000) [w setFrameOrigin:NSMakePoint(-9999, -9999)];

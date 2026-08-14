@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyWindow, compositorBlindSpot, screenWindowAt, isParked } from '../../lib/window.js';
+import {
+  classifyWindow,
+  compositorBlindSpot,
+  isParked,
+  measuredWindowState,
+  screenWindowAt,
+} from '../../lib/window.js';
 
 // The verifier is the thing that decides whether `show` tells the truth, and it
 // is fed by two sources that routinely disagree: `cur` is what Chrome believes
@@ -38,6 +44,37 @@ const NOISE = [
 
 test('a genuinely visible window reports no problem', () => {
   assert.equal(classifyWindow(1, chromeBounds(), serverState([...NOISE, serverWindow()]), PID), null);
+});
+
+test('status reports visibility from the window server', () => {
+  const wins = [{ windowId: 1, bounds: chromeBounds() }];
+  assert.equal(measuredWindowState(wins, serverState([...NOISE, serverWindow()])), 'visible');
+  assert.equal(
+    measuredWindowState(
+      wins,
+      serverState([...NOISE, serverWindow({ alpha: 0, left: -9999, top: -9999, onScreen: false })])
+    ),
+    'hidden'
+  );
+});
+
+test('status says unknown when the window server cannot support a verdict', () => {
+  const wins = [{ windowId: 1, bounds: chromeBounds() }];
+  assert.equal(measuredWindowState(wins, null), 'unknown');
+  assert.equal(
+    measuredWindowState(wins, serverState([serverWindow({ onScreen: false })])),
+    'unknown',
+    'off-screen with normal Chrome bounds can also mean another Space'
+  );
+});
+
+test('status calls a window minimized only when Chrome and the window server agree', () => {
+  const wins = [{ windowId: 1, bounds: chromeBounds({ windowState: 'minimized' }) }];
+  assert.equal(
+    measuredWindowState(wins, serverState([serverWindow({ onScreen: false })])),
+    'minimized'
+  );
+  assert.equal(measuredWindowState(wins, serverState([serverWindow()])), 'visible');
 });
 
 test('a miniaturized window is caught even though every other signal looks right', () => {
