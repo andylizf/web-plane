@@ -22,5 +22,8 @@ export function removeTmpDir(dir) {
   if (!dir || !dir.startsWith(join(REPO_ROOT, 'tmp'))) {
     throw new Error(`refusing to remove ${dir}: not inside the repo's tmp/`);
   }
-  rmSync(dir, { recursive: true, force: true });
+  // Chrome's main process can exit before its helpers finish closing profile
+  // files. macOS can then return ENOTEMPTY halfway through recursive removal.
+  // A real leaked writer still fails after two seconds and leaves its evidence.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
 }
