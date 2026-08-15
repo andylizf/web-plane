@@ -13,7 +13,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel']);
 
 // Commands playwright-cli answers about *itself*. Proxying them succeeds and
 // prints something authoritative-looking that has nothing to do with web-plane:
@@ -63,8 +63,8 @@ Browser control (proxied to playwright-cli):
   snapshot                Accessibility tree with element refs (e1, e2...)
   screenshot [path]       Capture page as PNG
   click <ref>             Click element by ref
-  fill <ref> <text>       Clear and fill input
-  type <text>             Type into focused element
+  fill <ref> <text>       Clear the field, then enter text — use this to REPLACE a value
+  type <ref> <text>       Type text without clearing — APPENDS to what is already there
   press <key>             Press keyboard key
   hover <ref>             Hover over element
   eval <js>               Execute JavaScript
@@ -82,6 +82,12 @@ Window management:
   hide                    Make window invisible (screenshots still work)
   toggle                  Toggle window visibility
   status                  Show browser status (PID, visibility, session)
+
+Native Save/Open panels:
+  panel status            Report the active Save/Open panel as JSON
+  panel accept --path <absolute-path>
+                          Select the exact path and press Save/Open
+  panel cancel            Cancel the active Save/Open panel
 
 Integration (drive with agent-browser):
   attach [--as <lane>] <url>
@@ -164,6 +170,11 @@ if (command === 'install') {
 } else if (command === 'profiles') {
   const { profiles } = await import('../lib/profiles.js');
   process.exit(profiles());
+} else if (command === 'panel') {
+  const { runPanelCommand } = await import('../lib/panel.js');
+  const result = await runPanelCommand(parseSessionFlag(rawArgs), commandArgs);
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
 } else if (MISLEADING_PROXIES[command]) {
   const { instead, why } = MISLEADING_PROXIES[command];
   console.error(
