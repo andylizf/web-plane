@@ -95,6 +95,26 @@ web-plane -s=work status   # PID, CDP port, visibility
 web-plane -s=work close
 ```
 
+## Dialog and native panel routing
+
+- Handle JavaScript `alert`, `confirm`, `prompt`, and `beforeunload` through the
+  browser driver's dialog API.
+- Upload files with `setInputFiles` or the driver's file-chooser event; do not
+  operate the visible Open panel for an HTML file input.
+- For a real macOS Save/Open panel owned by managed Chrome, use:
+
+  ```bash
+  web-plane -s=work panel status
+  web-plane -s=work panel accept --path /absolute/path
+  web-plane -s=work panel cancel
+  ```
+
+  Responses are JSON. After `accept`, verify the expected file or browser event;
+  dismissal alone is not completion. Touch ID, Keychain, passwords, privacy
+  consent, and other protected system UI remain human-only. Hidden sessions hold
+  Save/Open presentation for 30 seconds; `web-plane -s=work show` releases a
+  pending panel immediately when a human should take over.
+
 ## Caveats
 
 - **macOS only.**

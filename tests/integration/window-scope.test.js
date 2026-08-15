@@ -27,6 +27,7 @@ before(() => {
     '-o',
     dylib,
     join(REPO_ROOT, 'native', 'window_suppress.m'),
+    join(REPO_ROOT, 'native', 'panel_control.m'),
   ]);
   execFileSync('cc', [
     '-Wall',
@@ -45,6 +46,19 @@ before(() => {
 after(() => dir && removeTmpDir(dir));
 
 test('hidden state is click-through without moving browser frames or their native UI', () => {
+  // This suite deliberately owns the foreground. Establish a normal baseline
+  // first: Notification Center can be the frontmost process while a notification
+  // stack is open and refuses ordinary application activation, which makes the
+  // human-panel assertion describe that external modal state instead of this
+  // dylib. Finder activation is reversible and gives the host a real app to hand
+  // focus back to after its panel closes.
+  execFileSync('/usr/bin/osascript', [
+    '-l',
+    'JavaScript',
+    '-e',
+    'ObjC.import("AppKit"); var a=$.NSRunningApplication.runningApplicationsWithBundleIdentifier("com.apple.finder").firstObject; if (!a.activateWithOptions($.NSApplicationActivateAllWindows | $.NSApplicationActivateIgnoringOtherApps)) throw new Error("Finder did not activate")',
+  ]);
+  execFileSync('/bin/sleep', ['0.2']);
   const result = spawnSync(host, [], {
     encoding: 'utf8',
     env: {
@@ -78,4 +92,20 @@ test('hidden state is click-through without moving browser frames or their nativ
   assert.equal(observed.browserIgnoresMouseAfterShow, false, 'show left the browser click-through');
   assert.equal(observed.recoverAlphaAfterShow, 1, 'show did not restore Chrome Recover UI');
   assert.equal(observed.recoverIgnoresMouseAfterShow, false, 'show left Chrome Recover UI click-through');
+});
+
+test('the show signal recovers a minimized browser without Accessibility permission', () => {
+  const result = spawnSync(host, ['minimize'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DYLD_INSERT_LIBRARIES: dylib,
+      WEB_PLANE_RUN_ID: '8f0a5322-a6bc-41b0-9f5f-6c20e48c424f',
+      WEB_PLANE_RUN_DIR: runDir,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const observed = JSON.parse(result.stdout.trim());
+  assert.equal(observed.minimizedBeforeShow, true, 'the host did not stage a minimized window');
+  assert.equal(observed.minimizedAfterShow, false, 'SIGUSR2 left the browser in the Dock');
 });

@@ -2,6 +2,7 @@
 #import <AppKit/AppKit.h>
 #include <limits.h>
 #include <signal.h>
+#include <string.h>
 #include <unistd.h>
 
 // Chromium uses this exact subclass for browser frames. The injected hook looks
@@ -51,8 +52,9 @@ static void clearHiddenFlag(void) {
     unlink(path);
 }
 
-int main(void) {
+int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        BOOL minimizeOnly = argc == 2 && strcmp(argv[1], "minimize") == 0;
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         [NSApp finishLaunching];
@@ -61,9 +63,24 @@ int main(void) {
         [NSApp activateIgnoringOtherApps:YES];
         BrowserNativeWidgetWindow *browser = [[BrowserNativeWidgetWindow alloc]
             initWithContentRect:NSMakeRect(120, 140, 900, 700)
-                      styleMask:NSWindowStyleMaskTitled
+                      styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskMiniaturizable
                         backing:NSBackingStoreBuffered
                           defer:NO];
+        if (minimizeOnly) {
+            [browser orderFront:nil];
+            pumpRunLoop(0.2);
+            [browser miniaturize:nil];
+            pumpRunLoop(0.5);
+            BOOL before = [browser isMiniaturized];
+            clearHiddenFlag();
+            raise(SIGUSR2);
+            pumpRunLoop(0.8);
+            printf("{\"minimizedBeforeShow\":%s,\"minimizedAfterShow\":%s}\n",
+                   before ? "true" : "false",
+                   [browser isMiniaturized] ? "true" : "false");
+            [browser close];
+            return 0;
+        }
         NSPanel *panel = [[NSPanel alloc]
             initWithContentRect:NSMakeRect(260, 280, 520, 360)
                       styleMask:NSWindowStyleMaskTitled

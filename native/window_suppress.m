@@ -17,6 +17,7 @@
 
 static char signalPath[PATH_MAX];
 static char hiddenPath[PATH_MAX];
+static char agentPanelPath[PATH_MAX];
 static BOOL initialized = NO;
 
 static void initPaths(void) {
@@ -26,6 +27,7 @@ static void initPaths(void) {
         if (runDir && runId) {
             snprintf(signalPath, sizeof(signalPath), "%s/.chrome-suppress-%s", runDir, runId);
             snprintf(hiddenPath, sizeof(hiddenPath), "%s/.chrome-hidden-%s", runDir, runId);
+            snprintf(agentPanelPath, sizeof(agentPanelPath), "%s/.panel-automation-%s", runDir, runId);
         }
         initialized = YES;
     }
@@ -65,6 +67,22 @@ static BOOL isChromeWindow(NSWindow *w) {
         if (cls && [w isKindOfClass:cls]) return YES;
     }
     return NO;
+}
+
+// An intercepted Open panel must briefly initialize AppKit's remote file-browser
+// service before its selected URL becomes observable. The panel-control layer
+// writes this marker only for that interval. Treat the proxy as automation UI:
+// order it in so AppKit progresses, but never composite it or let it take input.
+static BOOL isAgentPanelWindow(NSWindow *w) {
+    initPaths();
+    return w && access(agentPanelPath, F_OK) == 0 &&
+           [w isKindOfClass:[NSSavePanel class]];
+}
+
+static void cloakAgentPanel(NSWindow *w) {
+    if (!isAgentPanelWindow(w)) return;
+    [w setAlphaValue:0.0];
+    [w setIgnoresMouseEvents:YES];
 }
 
 static void cloak(NSWindow *w) {
@@ -126,7 +144,7 @@ static pid_t gPrevFrontPid = 0;
 static BOOL gHumanUIActive = NO;
 
 static BOOL isHumanWindow(NSWindow *w) {
-    if (!w || isChromeWindow(w) || ![w canBecomeKeyWindow]) return NO;
+    if (!w || isChromeWindow(w) || isAgentPanelWindow(w) || ![w canBecomeKeyWindow]) return NO;
     // Save/Open panels and AppKit alerts are NSPanel subclasses. An attached
     // sheet may be a private NSWindow subclass, so accept that relationship too.
     // Deliberately do not accept every keyable non-browser window: Chromium's
@@ -296,8 +314,10 @@ static void init(void) {
         if (i < 2) {
             BOOL isMakeKey = (i == 0);
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
+                BOOL agentPanel = isAgentPanelWindow(self);
                 BOOL human = isHidden() && isHumanWindow(self);
                 if (human) beginHumanUI(self);
+                if (agentPanel) cloakAgentPanel(self);
                 if (isChromeWindow(self) && (shouldSuppress() || isHidden())) {
                     cloak(self);
                     // Making a window key is itself an activation request: the
@@ -316,14 +336,21 @@ static void init(void) {
                     cloak(self);
                     return;
                 }
+                // The remote Open-panel service does not commit its selected URL
+                // unless its proxy completes ordinary key-window initialization.
+                // Let makeKey run inside the process; the application-level hooks
+                // below still block Chrome from becoming the foreground app.
                 ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
                 if (isHidden()) cloak(self);
+                if (agentPanel) cloakAgentPanel(self);
                 if (human) activateHumanUI(self);
             });
         } else {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
+                BOOL agentPanel = isAgentPanelWindow(self);
                 BOOL human = isHidden() && isHumanWindow(self);
                 if (human) beginHumanUI(self);
+                if (agentPanel) cloakAgentPanel(self);
                 if (isChromeWindow(self) && shouldSuppress()) {
                     cloak(self);
                     ((void(*)(id, SEL))origIMP)(self, sel);
@@ -332,6 +359,7 @@ static void init(void) {
                 }
                 ((void(*)(id, SEL))origIMP)(self, sel);
                 if (isHidden()) cloak(self);
+                if (agentPanel) cloakAgentPanel(self);
                 if (human) activateHumanUI(self);
             });
         }
@@ -350,11 +378,14 @@ static void init(void) {
         method_setImplementation(m, imp_implementationWithBlock(
             ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
                 BOOL hide = (place != NSWindowOut) && isHidden() && isChromeWindow(self);
+                BOOL agentPanel = (place != NSWindowOut) && isAgentPanelWindow(self);
                 BOOL human = (place != NSWindowOut) && isHidden() && isHumanWindow(self);
                 if (human) beginHumanUI(self);
                 if (hide) cloak(self);
+                if (agentPanel) cloakAgentPanel(self);
                 ((void(*)(id, SEL, NSWindowOrderingMode, NSInteger))origIMP)(self, sel, place, otherWin);
                 if (hide) cloak(self);
+                if (agentPanel) cloakAgentPanel(self);
                 if (human) activateHumanUI(self);
             }));
     }
@@ -391,8 +422,8 @@ static void init(void) {
                 if (gHumanUIActive) requestHumanActivation();
                 if (!gHumanUIActive) yieldFocusBack();
                 for (NSWindow *w in [NSApp windows]) {
-                    if (!isChromeWindow(w)) continue;
-                    cloak(w);
+                    if (isChromeWindow(w)) cloak(w);
+                    if (isAgentPanelWindow(w)) cloakAgentPanel(w);
                 }
             }];
             [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];

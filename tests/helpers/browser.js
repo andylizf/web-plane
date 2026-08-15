@@ -45,7 +45,8 @@ export function buildRuntime(home) {
 
   execSync(
     `cc -Wall -Werror -dynamiclib -framework AppKit -framework Foundation -o "${dylib}" ` +
-      `"${join(REPO_ROOT, 'native', 'window_suppress.m')}"`,
+      `"${join(REPO_ROOT, 'native', 'window_suppress.m')}" ` +
+      `"${join(REPO_ROOT, 'native', 'panel_control.m')}"`,
     { stdio: 'inherit' }
   );
 

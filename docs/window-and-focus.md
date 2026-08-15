@@ -107,10 +107,13 @@ activation, so on 26.x a hook on it alone is close to decorative.
 5. **Browser process only.** The dylib is injected into every renderer, GPU and
    utility child; they are filtered out by `--type=` in the argument list.
 6. **Human-facing native UI is a scoped exception.** A non-browser window that
-   can become key (for example a Save or Screen Time panel) temporarily permits
-   activation while it is visible. When the last such window closes, the timer
-   re-arms suppression and returns focus to the application that was previously
-   in front. Browser frames remain transparent and click-through throughout.
+   can become key (for example a Screen Time panel, or a Save/Open panel in a
+   visible session) temporarily permits activation while it is visible. When the
+   last such window closes, the timer re-arms suppression and returns focus to
+   the application that was previously in front. Hidden-session Save/Open panels
+   are intercepted before display for typed agent control; Open's remote-service
+   proxy remains alpha-zero and does not lift activation suppression. Browser
+   frames remain transparent and click-through throughout.
 
 Moving a hidden frame to `(-9999, -9999)` is deliberately not part of this
 design. Sheets follow their parent there, and macOS clamps extreme coordinates,

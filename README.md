@@ -144,11 +144,27 @@ web-plane show                          # visible again
 web-plane toggle
 web-plane status                        # PID, CDP port, visibility
 
+# Native Save/Open panel control (JSON responses)
+web-plane -s=research panel status
+web-plane -s=research panel accept --path /Users/me/Downloads/report.pdf
+web-plane -s=research panel cancel
+
 # Close
 web-plane -s=research close
 ```
 
 All playwright-cli commands are supported. web-plane auto-injects `--headed`, `--profile`, and `--config` on `open`.
+
+JavaScript `alert`, `confirm`, `prompt`, and `beforeunload` dialogs belong to
+Playwright and should be handled there. File uploads should use
+`setInputFiles`. The `panel` command is intentionally narrower: it controls only
+real AppKit `NSSavePanel`/`NSOpenPanel` windows owned by managed Chrome. It does
+not click Touch ID, Keychain, password, privacy-consent, or arbitrary desktop
+UI. `panel accept` refuses relative paths and existing Save targets, and the
+caller must still verify that the resulting download or open operation finished.
+While a managed session is hidden, Save/Open presentation is held for up to 30
+seconds so the agent can answer without showing UI or taking focus. Running
+`show` releases a pending panel immediately for normal human interaction.
 
 ## vs agent-browser
 

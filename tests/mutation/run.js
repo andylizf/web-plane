@@ -31,6 +31,42 @@ const WORKDIR = join(REPO, 'tmp', 'mutants');
  */
 const MUTATIONS = [
   {
+    name: 'hidden-native-panel-is-not-intercepted',
+    describes:
+      'lets a hidden-session Save/Open panel enter its running phase, where public path setters ' +
+      'can no longer select the requested URL and the UI can surface to the user',
+    suite: 'tests/integration/panel-control.test.js',
+    expect: 'native Save panel reports state and accepts one exact non-existing path',
+    edits: [
+      {
+        file: 'native/panel_control.m',
+        from: 'if (!sessionIsHidden() || gPendingPanel || !completion) return NO;',
+        to: 'if (YES || gPendingPanel || !completion) return NO;',
+      },
+    ],
+  },
+  {
+    name: 'agent-open-panel-is-opaque',
+    describes:
+      'initializes the remote Open-panel service at alpha 1, exposing automation UI while the ' +
+      'browser itself remains hidden',
+    suite: 'tests/integration/panel-control.test.js',
+    expect: 'native Open panel selects and accepts the exact existing path',
+    edits: [
+      {
+        file: 'native/window_suppress.m',
+        from:
+          'static void cloakAgentPanel(NSWindow *w) {\n' +
+          '    if (!isAgentPanelWindow(w)) return;\n' +
+          '    [w setAlphaValue:0.0];',
+        to:
+          'static void cloakAgentPanel(NSWindow *w) {\n' +
+          '    if (!isAgentPanelWindow(w)) return;\n' +
+          '    [w setAlphaValue:1.0];',
+      },
+    ],
+  },
+  {
     name: 'show-signal-forgets-deminiaturize',
     describes:
       'reverts the dylib half of d787200: SIGUSR2 restores alpha but leaves the window ' +
@@ -49,7 +85,8 @@ const MUTATIONS = [
     // _regularMinimizeToDock. Reverting this line to deminiaturize: reproduces
     // the intermittent failure rather than a clean one, which is why the
     // mutation removes the call outright.
-    expect: 'the show signal recovers an independently miniaturized window',
+    suite: 'tests/integration/window-scope.test.js',
+    expect: 'the show signal recovers a minimized browser without Accessibility permission',
     edits: [
       {
         file: 'native/window_suppress.m',
@@ -116,8 +153,15 @@ const MUTATIONS = [
     edits: [
       {
         file: 'native/window_suppress.m',
-        from: '[w setIgnoresMouseEvents:YES];',
-        to: '[w setFrameOrigin:NSMakePoint(-9999, -9999)];',
+        from:
+          'static void cloak(NSWindow *w) {\n' +
+          '    if (!isChromeWindow(w)) return;\n' +
+          '    [w setAlphaValue:0.0];',
+        to:
+          'static void cloak(NSWindow *w) {\n' +
+          '    if (!isChromeWindow(w)) return;\n' +
+          '    [w setAlphaValue:0.0];\n' +
+          '    [w setFrameOrigin:NSMakePoint(-9999, -9999)];',
       },
     ],
   },
@@ -130,8 +174,14 @@ const MUTATIONS = [
     edits: [
       {
         file: 'native/window_suppress.m',
-        from: '[w setIgnoresMouseEvents:YES];',
-        to: '/* mutation: invisible browser still receives mouse events */',
+        from:
+          '[w setIgnoresMouseEvents:YES];\n' +
+          '}\n\n' +
+          '// Cloaking hides windows. It cannot stop the app from being activated',
+        to:
+          '/* mutation: invisible browser still receives mouse events */\n' +
+          '}\n\n' +
+          '// Cloaking hides windows. It cannot stop the app from being activated',
       },
     ],
   },

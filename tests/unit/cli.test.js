@@ -36,7 +36,7 @@ test('--version prints the version and nothing else', () => {
 test('--help lists the commands that exist', () => {
   const r = runCli(['--help'], { home });
   assert.equal(r.code, 0);
-  for (const cmd of ['doctor', 'profiles', 'attach', 'lane', 'show', 'hide', 'status']) {
+  for (const cmd of ['doctor', 'profiles', 'attach', 'lane', 'show', 'hide', 'status', 'panel']) {
     assert.match(r.stdout, new RegExp(`\\n  ${cmd}\\b`), `help does not document '${cmd}'`);
   }
 });
@@ -63,6 +63,14 @@ test("status reports no session rather than the user's own Chrome", () => {
   const r = runCli(['status'], { home });
   assert.equal(r.code, 0);
   assert.match(r.stdout, /No browser session running\./);
+});
+
+test('panel control refuses to signal an unversioned runtime', () => {
+  const r = runCli(['-s=not-running', 'panel', 'status'], { home });
+  assert.equal(r.code, 1);
+  const response = JSON.parse(r.stdout);
+  assert.equal(response.error.code, 'RUNTIME_MISMATCH');
+  assert.match(response.error.message, /web-plane install/);
 });
 
 test('close never claims success for a session it could not find', () => {

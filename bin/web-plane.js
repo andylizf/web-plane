@@ -3,7 +3,7 @@
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { parseInvocation, parseSessionFlag, parseLaneFlag } from '../lib/args.js';
+import { parseInvocation, parseSessionFlag, parseLaneFlag, stripSessionFlag } from '../lib/args.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -172,7 +172,7 @@ if (command === 'install') {
   process.exit(profiles());
 } else if (command === 'panel') {
   const { runPanelCommand } = await import('../lib/panel.js');
-  const result = await runPanelCommand(parseSessionFlag(rawArgs), commandArgs);
+  const result = await runPanelCommand(parseSessionFlag(rawArgs), stripSessionFlag(commandArgs));
   console.log(JSON.stringify(result, null, 2));
   process.exit(result.ok ? 0 : 1);
 } else if (MISLEADING_PROXIES[command]) {

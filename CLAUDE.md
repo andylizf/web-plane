@@ -59,10 +59,12 @@ or launch behavior.
 
 ## Runtime invariant
 
-The Node launcher, the two Playwright patches, and `window_suppress.dylib` speak
-one state protocol. `RUNTIME_VERSION` in `lib/config.js` names that protocol.
-Bump it whenever a change requires those pieces to be deployed together, and
-add a doctor test proving the previous protocol is rejected.
+The Node launcher, the two Playwright patches, and the two native sources
+compiled into `window_suppress.dylib` (`window_suppress.m` and
+`panel_control.m`) speak one state protocol. `RUNTIME_VERSION` in
+`lib/config.js` names that protocol. Bump it whenever a change requires those
+pieces to be deployed together, and add a doctor test proving the previous
+protocol is rejected.
 
 Do not patch `~/.web-plane/playwright-cli` by hand. Change the checked-in patch,
 run the tests, install a package copy, and let `web-plane install` rebuild the

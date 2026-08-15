@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseInvocation, parseSessionFlag, parseLaneFlag } from '../../lib/args.js';
+import {
+  parseInvocation,
+  parseSessionFlag,
+  parseLaneFlag,
+  stripSessionFlag,
+} from '../../lib/args.js';
 
 // Reading `-s` wrong is not a parse error, it is a command that acts on somebody
 // else's browser. Every case below is a shape that has to resolve to the same
@@ -62,6 +67,15 @@ test('the session is found whether it comes before or after the command', () => 
 
 test('a dangling -s at the end is not read as a session name', () => {
   assert.equal(parseSessionFlag(['status', '-s']), null);
+});
+
+test('session flags after a custom command do not leak into its arguments', () => {
+  assert.deepEqual(stripSessionFlag(['status', '-s=work']), ['status']);
+  assert.deepEqual(stripSessionFlag(['-s', 'work', 'accept', '--path', '/tmp/a']), [
+    'accept',
+    '--path',
+    '/tmp/a',
+  ]);
 });
 
 test('--as picks the lane and leaves the url', () => {

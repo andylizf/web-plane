@@ -120,6 +120,12 @@ test('hide is transparent and preserves browser geometry', async () => {
     `hide drew pixels or changed the browser frame: before=${JSON.stringify(before)} ` +
       `after=${JSON.stringify(last)}`
   );
+  assert.equal(
+    last.inOnScreenList,
+    true,
+    `hide minimized the browser instead of leaving its transparent frame in place: ` +
+      JSON.stringify(last)
+  );
 
   // And specifically NOT by minimizing. A miniaturized window keeps alpha and
   // bounds, so geometry alone cannot distinguish the degraded fallback.
