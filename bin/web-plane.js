@@ -106,7 +106,8 @@ Integration (drive with agent-browser):
 
 Flags:
   -s=<name>               Named session (persistent across commands)
-  --profile <path>        Browser profile directory (default: ~/.web-plane/profiles/<session>)
+  --profile <path>        Playwright profile path (open/proxied commands only;
+                          cdp/attach use -s=<name>)
   --help, -h              Show this help
   --version, -v           Show version
 
@@ -123,6 +124,22 @@ Examples:
   web-plane -s=work attach https://example.com   # start + open + connect, one step
   web-plane cdp                     # then: agent-browser --session <name> connect <port>`);
   process.exit(0);
+}
+
+// web-plane's own commands identify a browser by the session-owned profile at
+// ~/.web-plane/profiles/<session>. Accepting an arbitrary path here would make
+// launch use one profile while status, cdp discovery, and close look for
+// another. Before this guard, a global --profile was silently ignored and a
+// command-local one could even be mistaken for attach/cdp's URL.
+if (
+  CUSTOM_COMMANDS.has(command) &&
+  rawArgs.some((arg) => arg === '--profile' || arg.startsWith('--profile='))
+) {
+  console.error(
+    `web-plane: --profile is not supported by '${command}'. ` +
+      'web-plane-managed profiles are selected with -s=<name>.'
+  );
+  process.exit(2);
 }
 
 // Dispatch

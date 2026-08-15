@@ -153,7 +153,7 @@ web-plane -s=research panel cancel
 web-plane -s=research close
 ```
 
-All playwright-cli commands are supported. web-plane auto-injects `--headed`, `--profile`, and `--config` on `open`.
+All playwright-cli commands are supported. web-plane auto-injects `--headed`, `--profile`, and `--config` on `open`. An explicit `--profile <path>` is passed through to Playwright commands; web-plane's own `cdp`, `attach`, `status`, and `close` commands use the session-owned profile under `~/.web-plane/profiles/<session>`, selected with `-s=<name>`.
 
 JavaScript `alert`, `confirm`, `prompt`, and `beforeunload` dialogs belong to
 Playwright and should be handled there. File uploads should use
@@ -189,11 +189,15 @@ attaches over CDP and drives it — `webdriver=false` and all — without a wind
 stealing focus.
 
 ```bash
-web-plane cdp                     # prints: Session / CDP port / Attach: agent-browser connect <port>
-agent-browser connect <port>      # drive with agent-browser from here on
-agent-browser goto https://chatgpt.com
-web-plane hide                    # invisible; agent-browser keeps driving
+web-plane -s=work attach --as task1 https://chatgpt.com
+web-plane lane task1 snapshot
+web-plane lane task1 click e3
+web-plane -s=work hide            # invisible; the lane keeps driving
 ```
+
+`attach` starts or reuses the hidden browser, opens a labelled tab, and binds a separate agent-browser session to it. Agents that share one login use the same `-s` profile and different `--as` lanes. `web-plane lane` reselects the lane's tab before driving it, so another agent opening a tab cannot silently move its cursor.
+
+For a manual connection, run `web-plane -s=work cdp` and use the exact `agent-browser --session work connect <port>` command it prints. The `--session` flag is required: omitting it makes unrelated callers share agent-browser's default daemon.
 
 web-plane keeps `show`/`hide`/`status`/`close`; agent-browser owns page
 operations. The CDP port is auto-assigned — read it from `cdp` output rather than

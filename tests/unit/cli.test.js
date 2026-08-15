@@ -41,6 +41,19 @@ test('--help lists the commands that exist', () => {
   }
 });
 
+test('custom commands reject --profile instead of ignoring it or reading it as a URL', () => {
+  for (const args of [
+    ['--profile', '/some/dir', 'cdp'],
+    ['attach', '--profile=/some/dir', 'https://example.com'],
+  ]) {
+    const r = runCli(args, { home });
+    assert.equal(r.code, 2);
+    assert.match(r.stderr, /--profile is not supported/);
+    assert.match(r.stderr, /-s=<name>/);
+    assert.doesNotMatch(r.all, /not set up/);
+  }
+});
+
 test('`list` is refused rather than answered by playwright-cli', () => {
   // Proxying it succeeds and prints playwright-cli's own session registry, which
   // keeps names whose profile dirs are gone and omits profiles it never opened.

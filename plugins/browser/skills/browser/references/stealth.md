@@ -3,8 +3,7 @@
 The default for anything real: a logged-in session or a bot-protected site, on macOS.
 web-plane provides a cloned, re-signed real Chrome (`navigator.webdriver=false`, real UA,
 Cloudflare-proof) with a zero-flash hidden window; agent-browser attaches over CDP and
-does the operating. No window is ever visible; a launch does briefly touch the foreground
-(see Caveats).
+does the operating. The hidden launch neither shows a window nor takes focus (see Caveats).
 
 ## Install (one-time)
 ```bash

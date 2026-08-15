@@ -41,48 +41,42 @@ The CLI is installed as a package copy, never with `npm link`; otherwise branch
 switches can change production code underneath the installed runtime.
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the
 DYLD window-suppression hook, and rebuilds a locked local playwright-cli — all
-under `~/.web-plane/`. Re-run it after a package or Chrome update. Requires
-macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
+under `~/.web-plane/`. Re-run it after a package upgrade or when `doctor` reports
+that the Chrome clone drifted. Requires macOS, Google Chrome, Node.js >= 22,
+Xcode Command Line Tools.
 
 ## Use
 
-1. Start the stealth kernel and get its CDP port:
+1. Start or reuse the stealth browser, open a labelled tab, and attach an
+   isolated agent-browser lane:
 
    ```bash
-   web-plane cdp
-   # Session:  default
-   # CDP port: 50504
-   # Attach:   agent-browser connect 50504
+   web-plane -s=main attach --as task1 https://example.com
    ```
 
-   The port is auto-assigned — read it from this output, don't hardcode. Use
-   `-s=<name>` for a named, persistent session (its login state survives across
-   runs): `web-plane -s=work cdp`.
+   `-s` selects the profile: one login identity and one Chrome process. `--as`
+   selects the lane: one agent-browser daemon and one labelled tab. Agents that
+   share an identity use the same profile and different lanes.
 
-2. Attach agent-browser and drive normally:
+2. Drive through the lane so another agent opening a tab cannot silently move
+   your cursor:
 
    ```bash
-   agent-browser connect 50504
-   agent-browser goto https://example.com
-   agent-browser snapshot
-   agent-browser click e3
+   web-plane lane task1 snapshot
+   web-plane lane task1 click e3
    ```
 
 3. Confirm you're stealthy (optional):
 
    ```bash
-   agent-browser eval "navigator.webdriver"   # => false
+   web-plane lane task1 eval "navigator.webdriver"   # => false
    ```
 
-## Selecting the right tab
+For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
+`agent-browser --session main connect <port>` command it prints. Do not omit
+`--session`: unrelated callers otherwise share agent-browser's default daemon.
 
-Connecting to a session that already has tabs lands agent-browser on *some*
-existing target, not necessarily the one you want. Pick explicitly:
-
-```bash
-agent-browser tab list
-agent-browser tab 0
-```
+One lane owns one tab. Use another lane when the task needs another page.
 
 ## Hide / show
 
@@ -118,12 +112,13 @@ web-plane -s=work close
 ## Caveats
 
 - **macOS only.**
-- Re-run `web-plane install` after package or Chrome updates (the clone must track your
-  system Chrome version).
+- Re-run `web-plane install` after package upgrades or when `web-plane doctor`
+  reports that the clone no longer tracks system Chrome.
 - CAPTCHAs / MFA still need a human — stealth avoids being *flagged*, it does not
   solve challenges.
 
 ## Verify the whole chain
 
-`scripts/smoke.sh` runs the full path (cdp → connect → webdriver=false →
-navigate → hide → still drivable → close) and prints PASS/FAIL.
+`scripts/smoke.sh` runs the full manual path with an isolated agent-browser
+session (cdp → connect → webdriver=false → navigate → hide → still drivable →
+close) and prints PASS/FAIL.

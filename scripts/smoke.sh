@@ -24,21 +24,21 @@ echo "$OUT" | sed 's/^/   /'
 PORT="$(echo "$OUT" | awk '/CDP port:/ {print $3}')"
 [ -n "$PORT" ] || { echo "FAIL: no CDP port printed"; exit 1; }
 
-echo "-> agent-browser connect $PORT"
-agent-browser connect "$PORT" >/dev/null
+echo "-> agent-browser --session $SESSION connect $PORT"
+agent-browser --session "$SESSION" connect "$PORT" >/dev/null
 
-WD="$(agent-browser eval 'navigator.webdriver' | tail -1)"
+WD="$(agent-browser --session "$SESSION" eval 'navigator.webdriver' | tail -1)"
 echo "   navigator.webdriver = $WD"
 [ "$WD" = "false" ] || { echo "FAIL: expected webdriver=false (stealth broken / not attached)"; exit 1; }
 
-agent-browser goto https://example.com >/dev/null
-TITLE="$(agent-browser eval 'document.title' | tail -1)"
+agent-browser --session "$SESSION" goto https://example.com >/dev/null
+TITLE="$(agent-browser --session "$SESSION" eval 'document.title' | tail -1)"
 echo "   title = $TITLE"
 echo "$TITLE" | grep -q "Example Domain" || { echo "FAIL: navigate/eval broken"; exit 1; }
 
 echo "-> hide, then confirm still drivable"
 $WP -s="$SESSION" hide >/dev/null
-R="$(agent-browser eval '6*7' | tail -1)"
+R="$(agent-browser --session "$SESSION" eval '6*7' | tail -1)"
 echo "   eval after hide = $R"
 [ "$R" = "42" ] || { echo "FAIL: eval broken after hide"; exit 1; }
 
