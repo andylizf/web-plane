@@ -62,12 +62,14 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v5
+      - name: create project-local native build directory
+        run: mkdir -p tmp/ci-native
       - name: compile the DYLD window-suppression hook
-        run: cc -Wall -Werror -dynamiclib -framework AppKit -framework Foundation -o /tmp/window_suppress.dylib native/window_suppress.m
+        run: cc -Wall -Werror -dynamiclib -framework AppKit -framework Foundation -o tmp/ci-native/window_suppress.dylib native/window_suppress.m
       - name: compile the window_alpha tool
-        run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -o /tmp/window_alpha native/window_alpha.m
+        run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -o tmp/ci-native/window_alpha native/window_alpha.m
       - name: compile the test's window-server probe
-        run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -framework ApplicationServices -o /tmp/winprobe tests/native/winprobe.m
+        run: cc -Wall -Werror -framework CoreGraphics -framework CoreFoundation -framework ApplicationServices -o tmp/ci-native/winprobe tests/native/winprobe.m
       - name: the private selector the focus fix hooks still exists
         # Needs neither a browser nor a display, so it belongs here rather than
         # in the integration job: a macOS update that renames
@@ -75,31 +77,39 @@ jobs:
         # to a slower path, and the only symptom would be focus theft coming
         # back. Fail the build instead.
         run: |
-          cc -Wall -Werror -framework AppKit -framework Foundation -o /tmp/selcheck tests/native/selcheck.m
-          /tmp/selcheck
+          cc -Wall -Werror -framework AppKit -framework Foundation -o tmp/ci-native/selcheck tests/native/selcheck.m
+          tmp/ci-native/selcheck
       - name: the dylib actually injects and its constructor runs
         # Compiling is not the same as loading: DYLD_INSERT_LIBRARIES is silently
         # ignored for a binary that is not ad-hoc signed, and a constructor that
         # never runs hooks nothing. The dylib announces itself by creating
-        # /tmp/.chrome-suppress-<pid>, so ask for that rather than for a symbol.
+        # its run-id marker, so ask for that rather than for a symbol.
         run: |
           set -euo pipefail
-          cc -Wall -Werror -o /tmp/inject_host tests/native/inject_host.c
-          codesign --force --sign - /tmp/inject_host
+          native_dir="$PWD/tmp/ci-native"
+          run_dir="$native_dir/run-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          run_id="00000000-0000-4000-8000-000000000001"
+          suppress_marker="$run_dir/.chrome-suppress-$run_id"
+          hidden_marker="$run_dir/.chrome-hidden-$run_id"
+          mkdir -p "$run_dir"
 
-          control_pid=$(/tmp/inject_host)
-          if [ -e "/tmp/.chrome-suppress-$control_pid" ]; then
+          cc -Wall -Werror -o "$native_dir/inject_host" tests/native/inject_host.c
+          codesign --force --sign - "$native_dir/inject_host"
+
+          WEB_PLANE_RUN_DIR="$run_dir" WEB_PLANE_RUN_ID="$run_id" "$native_dir/inject_host" >/dev/null
+          if [ -e "$suppress_marker" ] || [ -e "$hidden_marker" ]; then
             echo "::error::the suppress file exists without injection — this check proves nothing"
             exit 1
           fi
 
-          injected_pid=$(DYLD_INSERT_LIBRARIES=/tmp/window_suppress.dylib /tmp/inject_host)
-          if [ ! -e "/tmp/.chrome-suppress-$injected_pid" ]; then
-            echo "::error::the dylib did not load (or its constructor did not run): no /tmp/.chrome-suppress-$injected_pid"
+          WEB_PLANE_RUN_DIR="$run_dir" WEB_PLANE_RUN_ID="$run_id" \
+            DYLD_INSERT_LIBRARIES="$native_dir/window_suppress.dylib" \
+            "$native_dir/inject_host" >/dev/null
+          if [ ! -e "$suppress_marker" ] || [ ! -e "$hidden_marker" ]; then
+            echo "::error::the dylib did not load or did not create both run-id markers"
             exit 1
           fi
-          echo "injection confirmed: /tmp/.chrome-suppress-$injected_pid was created"
-          rm -f "/tmp/.chrome-suppress-$injected_pid"
+          echo "injection confirmed: both run-id markers were created"
       - name: record coverage
         if: always()
         run: |
@@ -147,7 +157,7 @@ jobs:
         run: |
           {
             echo "### macos (real Chrome + window server)"
-            echo "Covered: launch suppression (zero flash), hide (alpha 0 + off screen),"
+            echo "Covered: launch suppression (zero flash), hide (alpha 0 + click-through),"
             echo "show (window genuinely composited, verified via CoreGraphics and the"
             echo "Accessibility API), popups born while hidden, close, \`doctor\` against"
             echo "each broken layer — plus a mutation gate proving the round-trip test"
