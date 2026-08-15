@@ -37,6 +37,7 @@ test('a healthy install passes', () => {
   const r = doctorOn('healthy', {});
   assert.equal(r.code, 0, `doctor should pass on a healthy install:\n${r.all}`);
   assert.match(r.stdout, /✓ playwright patch/);
+  assert.match(r.stdout, /✓ runtime protocol/);
   assert.match(r.stdout, /✓ clone signature/);
   assert.match(r.stdout, /✓ suppression dylib/);
 });
@@ -50,6 +51,25 @@ test('a reverted playwright patch is caught and named', () => {
   assert.match(r.stdout, /✗ playwright patch/);
   assert.match(r.stdout, /browserType\.js \(marker absent\)/);
   assert.match(r.stdout, /fix: web-plane install/);
+});
+
+test('the old generic patch marker does not pass as the run-id protocol', () => {
+  const r = doctorOn('legacy-patch', { browserTypePatch: 'legacy' });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /browserType\.js \(marker absent\)/);
+});
+
+test('a runtime built for another protocol is rejected', () => {
+  const r = doctorOn('old-runtime', { runtimeVersion: '1' });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /installed protocol 1 != package protocol 3/);
+  assert.match(r.stdout, /fix: web-plane install/);
+});
+
+test('an unversioned legacy runtime is rejected', () => {
+  const r = doctorOn('unversioned-runtime', { runtimeVersion: null });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /runtime protocol version missing/);
 });
 
 test('a missing patched file is distinguished from an unpatched one', () => {
@@ -80,6 +100,12 @@ test('a missing suppression dylib is caught', () => {
   assert.equal(r.code, 1);
   assert.match(r.stdout, /✗ suppression dylib/);
   assert.match(r.stdout, /not compiled/);
+});
+
+test('a legacy pid-scoped dylib cannot pass beside the run-id patches', () => {
+  const r = doctorOn('legacy-dylib', { dylib: 'legacy' });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /run-id protocol marker absent/);
 });
 
 test('a clone behind system Chrome is reported as a warning, not a failure', () => {

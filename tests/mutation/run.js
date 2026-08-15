@@ -39,10 +39,8 @@ const MUTATIONS = [
     // noticed" and "something went wrong somewhere" — a mutation caught by an
     // unrelated crash would prove nothing about the assertion it targets.
     //
-    // Note the test named here is the signal-level one, not the end-to-end round
-    // trip: on macOS 26 / Chrome 150 the CDP half of `show` deminiaturizes the
-    // window on its own, so the round trip passes with this bug reverted. That
-    // was measured, not assumed — see tests/tools/trace-minimize.mjs.
+    // The signal-level test isolates this from the end-to-end round trip:
+    // Chrome's CDP half also deminiaturizes, masking a broken signal handler.
     //
     // The restore call is makeKeyAndOrderFront:, not deminiaturize:, and the
     // difference is load-bearing rather than cosmetic — Chromium clears its
@@ -51,7 +49,7 @@ const MUTATIONS = [
     // _regularMinimizeToDock. Reverting this line to deminiaturize: reproduces
     // the intermittent failure rather than a clean one, which is why the
     // mutation removes the call outright.
-    expect: 'the show signal undoes the miniaturize, not just the alpha',
+    expect: 'the show signal recovers an independently miniaturized window',
     edits: [
       {
         file: 'native/window_suppress.m',
@@ -99,12 +97,55 @@ const MUTATIONS = [
     describes:
       'stops `hide` from cloaking (as when the DYLD hook is not loaded at all), leaving a ' +
       'window that is merely minimized — visible in the Dock, still stealing focus',
-    expect: 'hide leaves the window transparent and off screen',
+    expect: 'hide is transparent and preserves browser geometry',
     edits: [
       {
         file: 'lib/window.js',
-        from: "if (chrome.managed) {\n      process.kill(chrome.pid, 'SIGUSR1');",
-        to: "if (false) {\n      process.kill(chrome.pid, 'SIGUSR1');",
+        from: "if (chrome.managed) {\n      // Arm the standing-hidden flag",
+        to: "if (false) {\n      // Arm the standing-hidden flag",
+      },
+    ],
+  },
+  {
+    name: 'hide-parks-browser-offscreen',
+    describes:
+      'restores the old -9999 frame move, which drags attached sheets offscreen and is ' +
+      'clamped by macOS into a transparent edge strip',
+    suite: 'tests/integration/window-scope.test.js',
+    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    edits: [
+      {
+        file: 'native/window_suppress.m',
+        from: '[w setIgnoresMouseEvents:YES];',
+        to: '[w setFrameOrigin:NSMakePoint(-9999, -9999)];',
+      },
+    ],
+  },
+  {
+    name: 'hidden-browser-keeps-hit-region',
+    describes:
+      'removes click-through hiding, leaving an invisible browser window to consume mouse input',
+    suite: 'tests/integration/window-scope.test.js',
+    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    edits: [
+      {
+        file: 'native/window_suppress.m',
+        from: '[w setIgnoresMouseEvents:YES];',
+        to: '/* mutation: invisible browser still receives mouse events */',
+      },
+    ],
+  },
+  {
+    name: 'native-panel-cannot-activate',
+    describes:
+      'keeps the hidden-session activation block armed while a native panel needs human input',
+    suite: 'tests/integration/window-scope.test.js',
+    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    edits: [
+      {
+        file: 'native/window_suppress.m',
+        from: 'return isHidden() && !gHumanUIActive;',
+        to: 'return isHidden();',
       },
     ],
   },

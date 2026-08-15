@@ -1,6 +1,7 @@
 import { execFileSync, execSync } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, cpSync } from 'fs';
 import { join } from 'path';
+import { RUNTIME_VERSION } from '../../lib/config.js';
 
 /**
  * A fake `~/.web-plane` with every layer of the stealth kernel present — and a
@@ -13,8 +14,8 @@ import { join } from 'path';
  */
 
 const MARKERS = {
-  browserType: 'web-plane: DYLD injection',
-  crBrowser: 'web-plane: transition from DYLD',
+  browserType: 'WEB_PLANE_RUN_ID',
+  crBrowser: 'WEB_PLANE_RUN_DIR',
 };
 
 export const SYSTEM_CHROME_APP = '/Applications/Google Chrome.app';
@@ -33,11 +34,12 @@ export function systemChromeVersion() {
 /**
  * @param {string} home             fake $HOME
  * @param {object} opts
- * @param {boolean} opts.browserTypePatch  leave the DYLD-injection marker in place
+ * @param {boolean|'legacy'} opts.browserTypePatch  which DYLD-injection marker to write
  * @param {boolean} opts.crBrowserFile     create the second patched file at all
  * @param {'adhoc'|'signed'|'missing'} opts.clone  how the cloned Chrome is signed
- * @param {boolean} opts.dylib             the compiled suppression hook exists
+ * @param {boolean|'legacy'} opts.dylib    which suppression hook exists
  * @param {string|null} opts.cloneVersion  null = match system Chrome
+ * @param {string|null} opts.runtimeVersion null = omit the version file
  */
 export function makeRuntime(home, opts = {}) {
   const {
@@ -46,6 +48,7 @@ export function makeRuntime(home, opts = {}) {
     clone = 'adhoc',
     dylib = true,
     cloneVersion = null,
+    runtimeVersion = RUNTIME_VERSION,
   } = opts;
 
   const runtime = join(home, '.web-plane');
@@ -55,9 +58,11 @@ export function makeRuntime(home, opts = {}) {
 
   writeFileSync(
     join(pwServer, 'browserType.js'),
-    browserTypePatch
-      ? `// ${MARKERS.browserType}\nmodule.exports = {};\n`
-      : `// unpatched upstream file\nmodule.exports = {};\n`
+    browserTypePatch === 'legacy'
+      ? '// web-plane: DYLD injection\nmodule.exports = {};\n'
+      : browserTypePatch
+        ? `// ${MARKERS.browserType}\nmodule.exports = {};\n`
+        : `// unpatched upstream file\nmodule.exports = {};\n`
   );
   if (crBrowserFile) {
     writeFileSync(
@@ -94,8 +99,10 @@ export function makeRuntime(home, opts = {}) {
     }
   }
 
-  if (dylib) writeFileSync(join(runtime, 'window_suppress.dylib'), 'not a real dylib\n');
+  if (dylib === 'legacy') writeFileSync(join(runtime, 'window_suppress.dylib'), 'pid protocol\n');
+  else if (dylib) writeFileSync(join(runtime, 'window_suppress.dylib'), 'WEB_PLANE_RUN_ID\0');
   else rmSync(join(runtime, 'window_suppress.dylib'), { force: true });
+  if (runtimeVersion !== null) writeFileSync(join(runtime, 'runtime-version'), `${runtimeVersion}\n`);
 
   return runtime;
 }

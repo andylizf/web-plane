@@ -97,7 +97,7 @@ Sections:
 
 - **When to use:** you need to drive a browser stealthily / undetectably on macOS, without
   a visible window stealing focus.
-- **One-time install:** `npm i -g web-plane && web-plane install` and
+- **One-time install:** `npm i -g github:andylizf/web-plane && web-plane install && web-plane doctor` and
   `npm i -g agent-browser && agent-browser install`.
 - **Run:** `web-plane cdp` → copy the printed `agent-browser connect <port>`.
 - **Drive:** normal agent-browser commands; use `agent-browser tab` to select the right

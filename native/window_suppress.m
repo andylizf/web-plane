@@ -1,6 +1,6 @@
 // Zero-flash Chrome: suppress window show until signal file is removed.
 // Signal file: ~/Library/Application Support/web-plane/run/.chrome-suppress-<run-id>
-// When file exists → order normally but fully transparent and offscreen
+// When file exists → order normally but fully transparent and click-through
 // When file deleted (by Playwright after CDP ready) → pass through
 //
 // Post-launch hide/show via Unix signals:
@@ -39,9 +39,9 @@ static BOOL shouldSuppress(void) {
 // Standing-hidden flag, written by `web-plane hide` and removed by `show`.
 // While it exists, windows may order front normally (so Chrome's internal
 // bookkeeping stays truthful — replacing orderFront with miniaturize desyncs
-// it and Chrome then ignores all CDP bounds commands), but they are cloaked
-// right after: transparent and parked offscreen. Both are cosmetic operations
-// AppKit reports honestly, so no state ever diverges.
+// it and Chrome then ignores all CDP bounds commands), but browser frames are
+// cloaked right after: transparent and click-through. Their real coordinates
+// stay intact so native sheets remain attached to the right place.
 static BOOL isHidden(void) {
     initPaths();
     return access(hiddenPath, F_OK) == 0;
@@ -54,44 +54,14 @@ static BOOL isBrowserWindow(NSWindow *w) {
     return browserWindow && [w isKindOfClass:browserWindow];
 }
 
-// Where a window sat before it was parked offscreen, so `show` can put it back.
-//
-// Parking is half of hiding (the half that stops an invisible window swallowing
-// clicks, 401153b) but nothing used to undo it: SIGUSR2 restored alpha only, and
-// the windows still came back because `show` separately repositions them over
-// CDP. That covers every window Chrome knows about — and silently misses the ones
-// it does not. macOS injects windows into the process that Chrome never sees, and
-// the Screen Time lockout panel is one of them: measured after `show`, the
-// lockout window was alpha 1 and still at (-9999, 10181), i.e. visible in every
-// sense the API reports and physically off the display. The user gets a black
-// window with no explanation and cannot click "Ignore Limit", because the button
-// is a screen away.
-static const void *kParkedOriginKey = &kParkedOriginKey;
-
 static void cloak(NSWindow *w) {
     if (!isBrowserWindow(w)) return;
-    // Record the real origin once. Re-cloaking an already-parked window must not
-    // overwrite it with (-9999, -9999), or the way home is lost.
-    if (!objc_getAssociatedObject(w, kParkedOriginKey)) {
-        NSPoint o = [w frame].origin;
-        if (o.x > -9000.0 && o.y > -9000.0) {
-            objc_setAssociatedObject(w, kParkedOriginKey,
-                                     [NSValue valueWithPoint:o],
-                                     OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        }
-    }
     [w setAlphaValue:0.0];
-    [w setFrameOrigin:NSMakePoint(-9999, -9999)];
-}
-
-// Undo the parking half. Safe to call on a window that was never parked (no
-// association, nothing happens) and on one Chrome will reposition anyway over
-// CDP — that lands on the same or a better place a moment later.
-static void unpark(NSWindow *w) {
-    NSValue *v = objc_getAssociatedObject(w, kParkedOriginKey);
-    if (!v) return;
-    [w setFrameOrigin:[v pointValue]];
-    objc_setAssociatedObject(w, kParkedOriginKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    // A transparent frontmost window still owns its hit-test region. Moving it
+    // offscreen used to avoid that, but sheets follow their parent frame and
+    // macOS clamps extreme coordinates, leaving an invisible clickable strip.
+    // Click-through removes the hit region without corrupting geometry.
+    [w setIgnoresMouseEvents:YES];
 }
 
 // Cloaking hides windows. It cannot stop the app from being activated, because
@@ -99,8 +69,8 @@ static void unpark(NSWindow *w) {
 // launching process is brought to the front by the system, without calling any
 // NSWindow method we could swizzle. Measured on macOS 26.2 before this existed:
 // the clone went frontmost 5.6s into a hidden launch and held it for 6.2s, with
-// every window correctly transparent and parked offscreen the whole time. The
-// user saw no window and still lost the keyboard.
+// every browser window correctly transparent the whole time. The user saw no
+// window and still lost the keyboard.
 //
 // No activation policy is set here, and that is a conclusion rather than an
 // omission. Both options were tried and measured on 26.2:
@@ -137,6 +107,55 @@ static BOOL isBrowserProcess(void) {
 
 // Who had the keyboard when this process started — the app to hand it back to.
 static pid_t gPrevFrontPid = 0;
+// A hidden browser normally cannot activate itself. A native panel that needs a
+// human response is the one narrow exception: it may activate Chrome while it
+// is visible, then the timer restores the app that was in front before it.
+static BOOL gHumanUIActive = NO;
+
+static BOOL isHumanWindow(NSWindow *w) {
+    return w && !isBrowserWindow(w) && [w canBecomeKeyWindow];
+}
+
+static void rememberFrontApp(void) {
+    NSRunningApplication *front = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (front && front.processIdentifier != getpid()) {
+        gPrevFrontPid = front.processIdentifier;
+    }
+}
+
+static void beginHumanUI(NSWindow *w) {
+    if (!isHidden() || !isHumanWindow(w)) return;
+    if (!gHumanUIActive) rememberFrontApp();
+    gHumanUIActive = YES;
+}
+
+static BOOL hasVisibleHumanUI(void) {
+    for (NSWindow *w in [NSApp windows]) {
+        if (isHumanWindow(w) && [w isVisible]) return YES;
+    }
+    return NO;
+}
+
+static BOOL shouldBlockSelfActivation(void) {
+    return isHidden() && !gHumanUIActive;
+}
+
+static void requestHumanActivation(void) {
+    if (!isHidden() || !gHumanUIActive) return;
+    NSRunningApplication *current = [NSRunningApplication currentApplication];
+    if ([current isActive]) return;
+    [NSApp activateIgnoringOtherApps:YES];
+    [NSApp activate];
+    [current activateWithOptions:NSApplicationActivateAllWindows];
+}
+
+static void activateHumanUI(NSWindow *w) {
+    if (!isHidden() || !isHumanWindow(w)) return;
+    // gHumanUIActive is already true, so the activation swizzles below pass this
+    // through. This is necessary for sheets created by macOS itself: ordering
+    // the panel alone does not reliably make the process composited/frontmost.
+    requestHumanActivation();
+}
 
 // Backstop. The _activateWithInfo: hook below prevents the activation outright
 // and measures zero stolen focus, so on a healthy build this never fires. It is
@@ -165,19 +184,20 @@ static void yieldFocusBack(void) {
 static void handleSIGUSR1(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (NSWindow *w in [NSApp windows]) {
-            if (isBrowserWindow(w)) [w setAlphaValue:0.0];
+            cloak(w);
         }
     });
 }
 
 static void handleSIGUSR2(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        gHumanUIActive = NO;
         for (NSWindow *w in [NSApp windows]) {
             if (!isBrowserWindow(w)) continue;
-            // Hiding is TWO acts — miniaturize, then alpha 0 — so showing has to
-            // undo both. Restoring only the alpha left the window genuinely
-            // miniaturized, parked in the Dock's minimized tray where nobody
-            // thinks to look, while every signal we check said it was fine:
+            // Normal hiding is alpha/click-through only, but Chrome or macOS may
+            // independently leave a window in the Dock. Showing must recover
+            // that state as well as restoring alpha, because a miniaturized
+            // window keeps normal-looking bounds and alpha values:
             // Chrome reports windowState normal (it never saw the minimize, we
             // did it behind its back), and CGWindowList reports alpha 1 with
             // correct bounds (a miniaturized window keeps both).
@@ -204,12 +224,8 @@ static void handleSIGUSR2(int sig) {
             // NativeWidgetMac::Restore() -> SetMiniaturized(false) ->
             // [window_ deminiaturize:nil], the same call with the same race.
             if ([w isMiniaturized]) [w makeKeyAndOrderFront:nil];
+            [w setIgnoresMouseEvents:NO];
             [w setAlphaValue:1.0];
-            // Third act, added after the first two proved insufficient: bring it
-            // back from (-9999, -9999). Without this a window Chrome does not
-            // manage — a system-injected panel such as Screen Time's lockout —
-            // reports itself fully shown while sitting off the display.
-            unpark(w);
         }
     });
 }
@@ -229,7 +245,7 @@ static void init(void) {
     // hidden flag remains until an explicit `web-plane show`.  Previously the
     // launch hook called miniaturize:, which kept the content window out of
     // CGWindowList but still produced a visible macOS/Dock minimize animation.
-    // Starting in the same alpha-zero/offscreen state used by normal `hide`
+    // Starting in the same transparent/click-through state used by normal `hide`
     // removes that animation while keeping Chrome's window bookkeeping true.
     FILE *f = fopen(signalPath, "w");
     if (f) fclose(f);
@@ -260,6 +276,8 @@ static void init(void) {
         if (i < 2) {
             BOOL isMakeKey = (i == 0);
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
+                BOOL human = isHidden() && isHumanWindow(self);
+                if (human) beginHumanUI(self);
                 if (isBrowserWindow(self) && (shouldSuppress() || isHidden())) {
                     cloak(self);
                     // Making a window key is itself an activation request: the
@@ -267,7 +285,7 @@ static void init(void) {
                     // receive typing. Cloaking cannot prevent that, because the
                     // window's alpha and position have nothing to do with who
                     // owns the keyboard — which is why focus was still being
-                    // taken with every window correctly transparent, offscreen,
+                    // taken with every window correctly transparent,
                     // the app already Accessory, and all three activation APIs
                     // hooked. Order the window in, skip the makeKey.
                     if (isMakeKey && origOrderFront) {
@@ -280,9 +298,12 @@ static void init(void) {
                 }
                 ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
                 if (isHidden()) cloak(self);
+                if (human) activateHumanUI(self);
             });
         } else {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
+                BOOL human = isHidden() && isHumanWindow(self);
+                if (human) beginHumanUI(self);
                 if (isBrowserWindow(self) && shouldSuppress()) {
                     cloak(self);
                     ((void(*)(id, SEL))origIMP)(self, sel);
@@ -291,6 +312,7 @@ static void init(void) {
                 }
                 ((void(*)(id, SEL))origIMP)(self, sel);
                 if (isHidden()) cloak(self);
+                if (human) activateHumanUI(self);
             });
         }
         method_setImplementation(m, newIMP);
@@ -299,8 +321,8 @@ static void init(void) {
     // become visible through orderWindow:relativeTo: without ever calling the
     // three high-level methods hooked above, so the standing-hidden check must
     // live here to catch every path onto the screen. Cloak BEFORE the original
-    // runs too, so the window is already transparent+offscreen the instant it
-    // is ordered in — otherwise there's a one-frame flash before we react.
+    // runs too, so the window is already transparent and click-through the
+    // instant it is ordered in — otherwise there's a one-frame flash.
     {
         SEL sel = @selector(orderWindow:relativeTo:);
         Method m = class_getInstanceMethod(cls, sel);
@@ -308,9 +330,12 @@ static void init(void) {
         method_setImplementation(m, imp_implementationWithBlock(
             ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
                 BOOL hide = (place != NSWindowOut) && isHidden() && isBrowserWindow(self);
+                BOOL human = (place != NSWindowOut) && isHidden() && isHumanWindow(self);
+                if (human) beginHumanUI(self);
                 if (hide) cloak(self);
                 ((void(*)(id, SEL, NSWindowOrderingMode, NSInteger))origIMP)(self, sel, place, otherWin);
                 if (hide) cloak(self);
+                if (human) activateHumanUI(self);
             }));
     }
     // Continuous enforcement while hidden. Method swizzling alone can't hold a
@@ -319,7 +344,7 @@ static void init(void) {
     // and after a popup's page loads Chrome re-runs layout and sets alpha back to
     // 1 at a position onscreen. Instead, re-assert the cloak on a fast timer:
     // setAlphaValue: itself does work on Chrome windows (the main window's
-    // hide/show rely on it), so re-applying alpha 0 + offscreen every tick wins
+    // hide/show rely on it), so re-applying alpha 0 + click-through every tick wins
     // the race against Chrome's relayout. Idle when not hidden (just a flag read).
     {
         // Defer scheduling to when the main queue first drains (proven to run
@@ -329,17 +354,25 @@ static void init(void) {
         // queue does not fire reliably inside Chrome's message pump.
         dispatch_async(dispatch_get_main_queue(), ^{
             NSTimer *t = [NSTimer timerWithTimeInterval:0.016 repeats:YES block:^(NSTimer *_t) {
-                if (!isHidden()) return;
-                // Backstop for the launch-time policy below. If anything set the
-                // app back to Regular — or finishLaunching ran too late to beat
-                // the system's activation — this pulls it out of the foreground
-                // within a frame instead of leaving it there for seconds.
-                yieldFocusBack();
+                if (!isHidden()) {
+                    gHumanUIActive = NO;
+                    return;
+                }
+                // A human-facing native panel may temporarily own the foreground.
+                // Once its last visible window closes, re-arm suppression and
+                // return focus to the app that was active before the panel.
+                BOOL humanVisible = hasVisibleHumanUI();
+                if (humanVisible && !gHumanUIActive) {
+                    rememberFrontApp();
+                    gHumanUIActive = YES;
+                } else if (!humanVisible && gHumanUIActive) {
+                    gHumanUIActive = NO;
+                }
+                if (gHumanUIActive) requestHumanActivation();
+                if (!gHumanUIActive) yieldFocusBack();
                 for (NSWindow *w in [NSApp windows]) {
                     if (!isBrowserWindow(w)) continue;
-                    if ([w alphaValue] > 0.0) [w setAlphaValue:0.0];
-                    NSPoint o = [w frame].origin;
-                    if (o.x > -9000 || o.y > -9000) [w setFrameOrigin:NSMakePoint(-9999, -9999)];
+                    cloak(w);
                 }
             }];
             [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];
@@ -371,7 +404,7 @@ static void init(void) {
             // it. Including it here made `show` undo itself — it activates the
             // app as its last step, this fired on that activation, and the
             // foreground went straight back to the previous app.
-            if (isHidden()) yieldFocusBack();
+            if (shouldBlockSelfActivation()) yieldFocusBack();
         }];
     }
 
@@ -422,7 +455,7 @@ static void init(void) {
                 // flag outlived CDP — the window came back opaque and still buried,
                 // failing three integration tests at once. Launch is still covered:
                 // the constructor creates both flags, so isHidden() is true then too.
-                if (isHidden()) return;
+                if (shouldBlockSelfActivation()) return;
                 ((void(*)(id, SEL, id))origIMP)(self, sel, info);
             }));
         }
@@ -435,8 +468,7 @@ static void init(void) {
         Method m = class_getInstanceMethod(appCls, sel);
         IMP origIMP = method_getImplementation(m);
         method_setImplementation(m, imp_implementationWithBlock(^(NSApplication *self, BOOL flag) {
-            // A hidden session must never steal focus either.
-            if (shouldSuppress() || isHidden()) return;
+            if (shouldBlockSelfActivation()) return;
             ((void(*)(id, SEL, BOOL))origIMP)(self, sel, flag);
         }));
     }
@@ -452,7 +484,7 @@ static void init(void) {
         if (m) {
             IMP origIMP = method_getImplementation(m);
             method_setImplementation(m, imp_implementationWithBlock(^(NSApplication *self) {
-                if (shouldSuppress() || isHidden()) return;
+                if (shouldBlockSelfActivation()) return;
                 ((void(*)(id, SEL))origIMP)(self, sel);
             }));
         }
@@ -480,14 +512,14 @@ static void init(void) {
             if (i == 0) {
                 method_setImplementation(m, imp_implementationWithBlock(
                     ^BOOL(NSRunningApplication *self, NSApplicationActivationOptions opts) {
-                        if ((shouldSuppress() || isHidden()) &&
+                        if (shouldBlockSelfActivation() &&
                             self.processIdentifier == getpid()) return NO;
                         return ((BOOL(*)(id, SEL, NSApplicationActivationOptions))origIMP)(self, sel, opts);
                     }));
             } else {
                 method_setImplementation(m, imp_implementationWithBlock(
                     ^BOOL(NSRunningApplication *self, id fromApp, NSApplicationActivationOptions opts) {
-                        if ((shouldSuppress() || isHidden()) &&
+                        if (shouldBlockSelfActivation() &&
                             self.processIdentifier == getpid()) return NO;
                         return ((BOOL(*)(id, SEL, id, NSApplicationActivationOptions))origIMP)(self, sel, fromApp, opts);
                     }));

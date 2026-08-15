@@ -33,13 +33,15 @@ agent-browser's ergonomics with web-plane's undetectability, invisibly.
 ## Install (one-time)
 
 ```bash
-npm install -g web-plane && web-plane install
+npm install -g github:andylizf/web-plane && web-plane install && web-plane doctor
 npm install -g agent-browser && agent-browser install
 ```
 
+The CLI is installed as a package copy, never with `npm link`; otherwise branch
+switches can change production code underneath the installed runtime.
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the
-DYLD window-suppression hook, and patches a local playwright-cli — all under
-`~/.web-plane/`. It is idempotent; re-run it after a Chrome update. Requires
+DYLD window-suppression hook, and rebuilds a locked local playwright-cli — all
+under `~/.web-plane/`. Re-run it after a package or Chrome update. Requires
 macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
 
 ## Use
@@ -96,7 +98,7 @@ web-plane -s=work close
 ## Caveats
 
 - **macOS only.**
-- Re-run `web-plane install` after Chrome updates (the clone must track your
+- Re-run `web-plane install` after package or Chrome updates (the clone must track your
   system Chrome version).
 - CAPTCHAs / MFA still need a human — stealth avoids being *flagged*, it does not
   solve challenges.

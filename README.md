@@ -30,23 +30,26 @@ No window is ever visible and a launch does not take your keyboard — but those
 
 ## Install
 
-Not published to npm — install straight from the repo:
+The npm registry name is a security placeholder, so install the package copy
+from GitHub:
 
 ```bash
 npm install -g github:andylizf/web-plane
 web-plane install
+web-plane doctor
 ```
 
-If your npm doesn't handle git installs cleanly (some restricted / Nix-managed
-setups leave a dangling link), clone and link instead — same result:
+Do not use `npm link` for the production command. It makes the executable follow
+the current git checkout, so switching branches can mix incompatible JS, patch,
+and dylib revisions. See [`CLAUDE.md`](CLAUDE.md) for the isolated development
+workflow.
 
-```bash
-git clone https://github.com/andylizf/web-plane ~/Projects/web-plane
-cd ~/Projects/web-plane && npm link
-web-plane install
-```
-
-`web-plane install` clones Chrome, compiles the native DYLD hook, patches playwright-cli, and sets everything up under `~/.web-plane/`. Idempotent — re-run after Chrome updates. (A background Chrome update can re-sign the clone and break DYLD injection; the next hidden launch detects that and re-applies the ad-hoc signature automatically, so re-running `install` is only needed to pick up a new Chrome version.)
+`web-plane install` clones Chrome, rebuilds a locked playwright-cli with the
+checked-in patches, compiles the native tools, and records their shared runtime
+protocol under `~/.web-plane/`. It requires web-plane sessions to be closed but
+does not touch profiles or login state. Re-run it after upgrading the package or
+when `doctor` reports an old Chrome clone. A background Chrome update that only
+changes the clone's signature is healed automatically on the next launch.
 
 Requires: macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
 
@@ -200,9 +203,12 @@ Runtime files live in `~/.web-plane/`:
 ```
 ~/.web-plane/
 ├── Chrome.app/                  APFS clone (re-signed for DYLD)
-├── playwright-cli/              Local install (patched, not global)
+├── playwright-cli/              Locked, freshly patched local install
 ├── window_suppress.dylib        DYLD hook for zero-flash launch
+├── runtime-version              Shared JS/patch/dylib protocol version
 ├── profiles/<session>/          Persistent browser profiles
+├── logs/install-*.log           Durable install logs
+├── backups/runtime-*/           Previous generated runtime
 └── cli.config.json              Launch config
 ```
 
@@ -230,9 +236,10 @@ rather than passing without proving anything — and rather than skipping, which
 would read as a green tick.
 
 `test:integration` also covers focus: a hidden launch must not take the
-foreground, `show` must not leave a window parked offscreen, and the private
-AppKit selector the focus fix depends on must still exist. For a quick manual
-check outside the suite:
+foreground, hiding must preserve browser coordinates while remaining
+click-through, native panels must get a temporary interactive foreground, and
+the private AppKit selector the focus fix depends on must still exist. For a
+quick manual check outside the suite:
 
 ```bash
 ./tests/focus-steal.sh <label>   # does a hidden launch take the foreground?

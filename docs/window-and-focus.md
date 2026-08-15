@@ -1,21 +1,22 @@
 # Hiding a window is not hiding an app
 
 Twelve of this repo's first thirty-four commits changed window-hiding behaviour.
-They all moved along one axis — miniaturize, park offscreen, add an enforcement
+They all moved along one axis — miniaturize, move the frame, add an enforcement
 timer, catch popups, swap miniaturize for alpha-zero — and users kept reporting
 that launching a hidden session took their keyboard anyway. This document exists
 so the next change starts from what is actually two problems.
 
 ## The two axes
 
-**Window visibility** is what `cloak()` handles: `setAlphaValue:0` plus a move to
-(-9999, -9999), re-asserted on a 16ms timer because Chrome's NSWindow subclass
-overrides the setters and undoes a one-shot change during relayout. This part
-always worked. Nobody ever saw a window.
+**Window visibility** is what `cloak()` handles: `setAlphaValue:0` plus
+`setIgnoresMouseEvents:YES`, re-asserted on a 16ms timer because Chrome's
+NSWindow subclass can undo a one-shot alpha change during relayout. The frame
+never moves. Native sheets therefore stay attached to the right coordinates,
+and the invisible browser cannot consume clicks.
 
 **Application activation** is separate. macOS grants the foreground to an
-*application*, not to a window. Every window can be transparent, parked off every
-display, and never ordered front, and the app owning them can still be frontmost —
+*application*, not to a window. Every window can be transparent and never ordered
+front, and the app owning them can still be frontmost —
 the menu bar switches to it and keystrokes stop reaching whatever the user was
 typing in. The symptom is "focus was stolen" with no window ever visible, which
 is why it kept getting filed as a window bug and kept surviving window fixes.
@@ -105,6 +106,15 @@ activation, so on 26.x a hook on it alone is close to decorative.
    handing the foreground back *is* an activation of another app.
 5. **Browser process only.** The dylib is injected into every renderer, GPU and
    utility child; they are filtered out by `--type=` in the argument list.
+6. **Human-facing native UI is a scoped exception.** A non-browser window that
+   can become key (for example a Save or Screen Time panel) temporarily permits
+   activation while it is visible. When the last such window closes, the timer
+   re-arms suppression and returns focus to the application that was previously
+   in front. Browser frames remain transparent and click-through throughout.
+
+Moving a hidden frame to `(-9999, -9999)` is deliberately not part of this
+design. Sheets follow their parent there, and macOS clamps extreme coordinates,
+which can leave a transparent clickable strip at a display edge.
 
 An alternative that also measured clean is launching through LaunchServices with
 `open -g -j -n --env DYLD_INSERT_LIBRARIES=… -a <clone>` and attaching via

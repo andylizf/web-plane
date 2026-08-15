@@ -44,7 +44,7 @@ before(() => {
 
 after(() => dir && removeTmpDir(dir));
 
-test('hidden state cloaks browser frames but leaves native panels visible', () => {
+test('hidden state is click-through without moving browser frames or their native UI', () => {
   const result = spawnSync(host, [], {
     encoding: 'utf8',
     env: {
@@ -57,7 +57,20 @@ test('hidden state cloaks browser frames but leaves native panels visible', () =
   assert.equal(result.status, 0, result.stderr);
   const observed = JSON.parse(result.stdout.trim());
   assert.equal(observed.browserAlpha, 0);
-  assert.ok(observed.browserX + 900 <= 100, `browser stayed at x=${observed.browserX}`);
+  assert.equal(observed.browserX, 120, 'hiding changed the browser frame geometry');
+  assert.equal(observed.browserIgnoresMouse, true);
   assert.equal(observed.panelAlpha, 1);
-  assert.ok(observed.panelX + 520 > 100, `panel was parked at x=${observed.panelX}`);
+  assert.ok(observed.panelX + 520 > 100, `panel moved offscreen to x=${observed.panelX}`);
+  assert.equal(observed.sheetAlpha, 1);
+  assert.equal(observed.sheetVisible, true);
+  assert.equal(observed.panelOnScreen, true, 'native panel was absent from WindowServer');
+  assert.equal(observed.sheetOnScreen, true, 'native sheet was absent from WindowServer');
+  assert.ok(
+    observed.sheetX >= 120 && observed.sheetX < 1020,
+    `sheet did not stay attached to the browser frame: x=${observed.sheetX}`
+  );
+  assert.equal(observed.humanUIActive, true, 'native UI did not receive foreground activation');
+  assert.equal(observed.activeAfterClose, false, 'focus suppression was not re-armed after native UI closed');
+  assert.equal(observed.browserAlphaAfterShow, 1);
+  assert.equal(observed.browserIgnoresMouseAfterShow, false, 'show left the browser click-through');
 });

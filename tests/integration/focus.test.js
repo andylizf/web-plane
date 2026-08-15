@@ -25,7 +25,7 @@ import {
  * This is a separate axis from every other window test in this suite, and
  * conflating the two is what let the bug live for so long: macOS grants the
  * foreground to an *application*, not to a window, so a browser whose windows
- * are all transparent and parked offscreen can still be frontmost. Measured
+ * are all transparent can still be frontmost. Measured
  * before the fix: six seconds of stolen focus with no window ever visible.
  *
  * The activation does not come from Chromium. It is AppKit's own window
@@ -136,55 +136,28 @@ test('a hidden launch never takes the foreground', async () => {
   );
 });
 
-test('show brings a parked window back to the screen coordinate space', async () => {
-  // hide is two acts — alpha 0 and a move to (-9999,-9999) — and show restored
-  // only the alpha for a long time. Chrome's own windows came back anyway
-  // because show repositions them over CDP, which hid the gap for everything
-  // Chrome manages. It does not manage windows macOS injects into the process,
-  // and one of those is Screen Time's lockout panel: it stayed a full screen
-  // away while reporting itself visible, so the user saw an unexplained blank
-  // and could not click the button on it.
-  //
-  // Asserted on coordinates rather than on visibility on purpose: whether a
-  // window is composited depends on Screen Time, occlusion and the display
-  // state, but "no window of this process is parked at -9999 after show" is
-  // true or false on its own.
+test('hide never changes a browser frame coordinate', async () => {
+  // Native sheets inherit their position from the browser frame. The old
+  // offscreen parking moved both the invisible browser and a visible Save panel
+  // away from every display; macOS also clamped the frame and left a transparent
+  // click target behind. Hiding must now be alpha/click-through only.
   assert.ok(browser?.pid, 'no browser from the previous test');
+  const before = contentWindow(probe(probeBin, browser.pid));
+  assert.ok(before, 'no content window existed before hide');
 
-  // Deliberately not asserting where hide leaves the window. Parking is done by
-  // the cloak hook and the enforcement timer, not by SIGUSR1 (which only sets
-  // alpha), so which windows are at -9999 at any moment depends on which of
-  // those fired — an implementation detail this test has no business pinning.
-  // The contract worth holding is only the one below.
   assert.equal(runCli([`-s=${SESSION}`, 'hide'], { home }).code, 0);
-  await waitFor(
+  const hidden = await waitFor(
     () => contentWindow(probe(probeBin, browser.pid)),
-    (w) => w && w.alpha === 0,
+    (w) => w && w.alpha === 0 && w.x === before.x && w.y === before.y,
     { timeoutMs: 5000 }
+  );
+  assert.ok(
+    hidden.ok,
+    `hide changed browser geometry: before=${JSON.stringify(before)} ` +
+      `after=${JSON.stringify(hidden.last)}`
   );
 
   runCli([`-s=${SESSION}`, 'show'], { home });
-
-  // Only real content windows. Chrome parks its own 1x1
-  // NativeWidgetMacOverlayNSWindows at -9999 permanently — that is Chrome's
-  // doing, not ours, they were never cloaked, and unpark correctly leaves them
-  // alone. Asserting over every window would fail on windows the fix must not
-  // touch.
-  const isContentWindow = (w) => w.w > 100 && w.h > 100;
-  const parkedContent = (p) =>
-    (p?.windows ?? []).filter(isContentWindow).filter((w) => w.x < -9000);
-
-  const back = await waitFor(
-    () => probe(probeBin, browser.pid),
-    (p) => p && parkedContent(p).length === 0,
-    { timeoutMs: 6000 }
-  );
-  const stillParked = parkedContent(back.last);
-  assert.deepEqual(
-    stillParked.map((w) => `#${w.number} ${w.w}x${w.h} at (${w.x},${w.y})`),
-    [],
-    'show left windows parked offscreen — they report as shown and are a screen away'
-  );
 });
 
 test('the private activation selector the fix depends on still exists', () => {

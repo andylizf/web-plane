@@ -81,18 +81,15 @@ function describeWindows(p) {
   return JSON.stringify(p.windows, null, 2);
 }
 
-test('the injected hook keeps the launch window off the screen entirely', async () => {
+test('the injected hook keeps the launch window fully transparent', async () => {
   // Zero flash is the product's first promise, and the only proof that the dylib
   // loaded at all: without injection the window is composited immediately and
   // there is nothing stealthy about anything that follows.
   const p = look();
   const w = contentWindow(p);
   assert.ok(w, `Chrome created no content-sized window:\n${describeWindows(p)}`);
-  assert.equal(
-    w.inOnScreenList,
-    false,
-    `the launch window reached the screen — DYLD injection did not take effect:\n${JSON.stringify(w)}`
-  );
+  assert.equal(w.alpha, 0, `the launch window drew pixels:\n${JSON.stringify(w)}`);
+  assert.ok(w.x > -9000, `the launch hook moved the frame offscreen: ${JSON.stringify(w)}`);
   assert.equal(
     existsSync(browser.suppressFile),
     true,
@@ -100,8 +97,10 @@ test('the injected hook keeps the launch window off the screen entirely', async 
   );
 });
 
-test('hide leaves the window transparent and off screen', async () => {
+test('hide is transparent and preserves browser geometry', async () => {
   await finishLaunchTransition(browser);
+  const before = mainWindow();
+  assert.ok(before, 'no browser frame existed before hide');
 
   const r = runCli([`-s=${SESSION}`, 'hide'], { home });
   assert.equal(r.code, 0, `hide failed:\n${r.all}`);
@@ -109,26 +108,21 @@ test('hide leaves the window transparent and off screen', async () => {
   // and fell back to a Dock icon: still on screen, still stealing focus.
   assert.match(r.stdout, /Window hidden/, `hide degraded instead of cloaking:\n${r.all}`);
 
-  // Hidden means transparent and out of the way — NOT gone from the compositor.
-  // The window has to keep rendering or screenshots stop working, which is half
-  // the point of hiding it this way rather than minimizing it. So the check is
-  // alpha 0 (nothing reaches the screen) plus parked (an invisible window left
-  // at the front of the z-order still swallows every click inside its frame).
+  // The frame stays where Chrome put it so native sheets remain attached to the
+  // right coordinates. The dylib makes it click-through; window-scope.test.js
+  // verifies that AppKit property directly.
   const { ok, last } = await waitFor(
     mainWindow,
-    (w) => w && w.alpha === 0 && w.x + w.w <= 100
+    (w) => w && w.alpha === 0 && w.x === before.x && w.y === before.y
   );
   assert.ok(
     ok,
-    `after hide the window is still drawing or still in the way: ${JSON.stringify(last)}`
+    `hide drew pixels or changed the browser frame: before=${JSON.stringify(before)} ` +
+      `after=${JSON.stringify(last)}`
   );
 
-  // And specifically NOT by minimizing. alpha 0 plus an offscreen frame is also
-  // true of a window sitting in the Dock — a miniaturized window keeps both —
-  // so the two checks above pass just as happily for the degraded fallback this
-  // whole mechanism exists to avoid. Without this line the `hide-degrades-to-minimize`
-  // mutation slipped past hide entirely and was caught downstream by `show`,
-  // which proves the wrong thing: that something broke, not that hide noticed.
+  // And specifically NOT by minimizing. A miniaturized window keeps alpha and
+  // bounds, so geometry alone cannot distinguish the degraded fallback.
   const ax = look().ax;
   if (ax.available) {
     assert.ok(
@@ -180,10 +174,10 @@ test('show puts a real window back on the screen', async () => {
   }
 });
 
-test('the show signal undoes the miniaturize, not just the alpha', async () => {
-  // The contract the SIGUSR2 handler carries: hiding is two acts — miniaturize
-  // and alpha 0 — so showing has to undo both. Tested at the signal rather than
-  // through `web-plane show`, because on macOS 26 / Chrome 150 the CDP half of
+test('the show signal recovers an independently miniaturized window', async () => {
+  // Normal hiding no longer miniaturizes. The signal still has to recover a
+  // window Chrome or macOS put in the Dock independently. Tested at the signal
+  // rather than through `web-plane show`, because on macOS 26 / Chrome 150 the CDP half of
   // show ("windowState: normal") deminiaturizes the window by itself, which
   // masks the handler entirely: the round trip above passes even with the
   // deminiaturize removed. That masking is Chrome's behaviour and it can change
@@ -199,7 +193,7 @@ test('the show signal undoes the miniaturize, not just the alpha', async () => {
   const parked = await waitFor(mainWindow, (w) => w && !w.inOnScreenList, { timeoutMs: 5000 });
   assert.ok(parked.ok, `could not get the window into the Dock: ${JSON.stringify(parked.last)}`);
 
-  process.kill(browser.pid, 'SIGUSR1'); // the hide half
+  process.kill(browser.pid, 'SIGUSR1');
   await waitFor(mainWindow, (w) => w && w.alpha === 0, { timeoutMs: 3000 });
 
   // Clear the standing-hidden flag before signalling, exactly as `show` does
@@ -207,12 +201,12 @@ test('the show signal undoes the miniaturize, not just the alpha', async () => {
   // exists the dylib's 16ms enforcement timer re-cloaks every window, so the
   // handler's work is undone a few frames after it lands. Traced with
   // tests/tools/trace-minimize.mjs — deminiaturize takes effect at +200ms
-  // (ax.minimized true -> false, window on screen) and the timer has parked it
+  // (ax.minimized true -> false, window on screen) and the timer has cloaked it
   // again by +600ms. Whether an assertion saw the good state was down to where
   // its 200ms sampling happened to fall, which is why the same code went green
   // on CI on 07-31 and red on 08-05.
   rmSync(browser.hiddenFlag, { force: true });
-  process.kill(browser.pid, 'SIGUSR2'); // the show half: must undo BOTH acts
+  process.kill(browser.pid, 'SIGUSR2');
 
   // Asserted on the Accessibility minimized flag rather than on whether the
   // window is composited, because that flag is what `deminiaturize:` actually

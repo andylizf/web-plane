@@ -8,7 +8,7 @@ does the operating. No window is ever visible; a launch does briefly touch the f
 
 ## Install (one-time)
 ```bash
-npm install -g web-plane && web-plane install
+npm install -g github:andylizf/web-plane && web-plane install && web-plane doctor
 npm install -g agent-browser && agent-browser install
 ```
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the DYLD

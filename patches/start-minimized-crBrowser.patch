@@ -1,10 +1,10 @@
 --- node_modules/playwright-core/lib/server/chromium/crBrowser.js
 +++ node_modules/playwright-core/lib/server/chromium/crBrowser.js
-@@ -96,6 +96,24 @@
+@@ -96,6 +96,23 @@
        browser._defaultContext._initialize()
      ]);
      await browser._waitForAllPagesToBeInitialized();
-+    // web-plane: transition from the launch cloak to CDP-managed offscreen state
++    // web-plane: release the launch cloak; the standing hidden flag keeps the frame transparent
 +    const startMinimized = options.originalLaunchOptions?.args?.includes?.("--start-minimized") && options.headful;
 +    if (startMinimized) {
 +      try {
@@ -18,7 +18,6 @@
 +        if (pageTarget) {
 +          const win = await session.send("Browser.getWindowForTarget", { targetId: pageTarget.targetId });
 +          await session.send("Browser.setWindowBounds", { windowId: win.windowId, bounds: { windowState: "normal" } });
-+          await session.send("Browser.setWindowBounds", { windowId: win.windowId, bounds: { left: -9999, top: -9999, width: 800, height: 600 } });
 +        }
 +      } catch {}
 +    }

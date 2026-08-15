@@ -197,8 +197,8 @@ export async function cdpClient(port) {
 
 /**
  * What the patched crBrowser.js does once CDP is up: drop the launch-time
- * suppression so later windows can order front normally, then park the window
- * offscreen through CDP.
+ * launch suppression marker. The standing hidden marker remains, so the dylib
+ * keeps browser frames transparent and click-through without moving them.
  *
  * Only this run's suppress file is removed; another session may be launching at
  * the same time, and its marker is not ours to touch.
@@ -213,10 +213,6 @@ export async function finishLaunchTransition({ pid, port, suppressFile }) {
   const cdp = await cdpClient(port);
   const { windowId } = await cdp.send('Browser.getWindowForTarget', { targetId: page.id });
   await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } });
-  await cdp.send('Browser.setWindowBounds', {
-    windowId,
-    bounds: { left: -9999, top: -9999, width: 800, height: 600 },
-  });
   cdp.close();
   return { windowId, pid };
 }
