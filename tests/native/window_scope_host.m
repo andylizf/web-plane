@@ -11,6 +11,14 @@
 @implementation BrowserNativeWidgetWindow
 @end
 
+// Chromium uses this separate family for its own keyable bubbles, including
+// restore/error UI and recent-download history. They are not system panels and
+// must stay cloaked with the browser frame while the session is hidden.
+@interface NativeWidgetMacNSWindow : NSWindow
+@end
+@implementation NativeWidgetMacNSWindow
+@end
+
 static NSDictionary *serverInfo(NSInteger windowNumber) {
     CFArrayRef list = CGWindowListCopyWindowInfo(
         kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
@@ -68,6 +76,12 @@ int main(void) {
                         backing:NSBackingStoreBuffered
                           defer:NO];
         [sheet setHidesOnDeactivate:NO];
+        NativeWidgetMacNSWindow *recover = [[NativeWidgetMacNSWindow alloc]
+            initWithContentRect:NSMakeRect(740, 620, 320, 88)
+                      styleMask:NSWindowStyleMaskBorderless
+                        backing:NSBackingStoreBuffered
+                          defer:NO];
+        [recover setTitle:@"Restore Pages"];
 
         [browser orderFront:nil];
         [panel makeKeyAndOrderFront:nil];
@@ -98,14 +112,33 @@ int main(void) {
         [panel close];
         pumpRunLoop(0.4);
         BOOL activeAfterClose = [[NSRunningApplication currentApplication] isActive];
+
+        // Reproduce the real post-Cancel failure: Chrome orders a keyable
+        // Recover/download bubble after the system panel goes away. It must not
+        // re-activate the app and it must remain transparent/click-through.
+        [recover makeKeyAndOrderFront:nil];
+        pumpRunLoop(0.4);
+        BOOL activeAfterRecover = [[NSRunningApplication currentApplication] isActive];
+        CGFloat recoverAlpha = [recover alphaValue];
+        BOOL recoverIgnoresMouse = [recover ignoresMouseEvents];
         clearHiddenFlag();
         raise(SIGUSR2);
         pumpRunLoop(0.8);
-        printf("\"activeAfterClose\":%s,\"browserAlphaAfterShow\":%.0f,"
-               "\"browserIgnoresMouseAfterShow\":%s}\n",
+        printf("\"activeAfterClose\":%s,\"recoverAlpha\":%.0f,"
+               "\"recoverIgnoresMouse\":%s,"
+               "\"activeAfterRecover\":%s,\"browserAlphaAfterShow\":%.0f,"
+               "\"browserIgnoresMouseAfterShow\":%s,"
+               "\"recoverAlphaAfterShow\":%.0f,"
+               "\"recoverIgnoresMouseAfterShow\":%s}\n",
                activeAfterClose ? "true" : "false",
+               recoverAlpha,
+               recoverIgnoresMouse ? "true" : "false",
+               activeAfterRecover ? "true" : "false",
                [browser alphaValue],
-               [browser ignoresMouseEvents] ? "true" : "false");
+               [browser ignoresMouseEvents] ? "true" : "false",
+               [recover alphaValue],
+               [recover ignoresMouseEvents] ? "true" : "false");
+        [recover close];
         [browser close];
         return 0;
     }

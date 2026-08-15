@@ -47,15 +47,28 @@ static BOOL isHidden(void) {
     return access(hiddenPath, F_OK) == 0;
 }
 
-// Chromium reserves this subclass for browser frames. Native panels and other
-// AppKit windows must remain visible so the user can complete the flow they gate.
-static BOOL isBrowserWindow(NSWindow *w) {
-    Class browserWindow = NSClassFromString(@"BrowserNativeWidgetWindow");
-    return browserWindow && [w isKindOfClass:browserWindow];
+// Chromium owns more top-level surfaces than the content frame. Restore/error
+// bubbles and download-history popovers use NativeWidgetMacNSWindow, while
+// transient overlays use NativeWidgetMacOverlayNSWindow. They are still browser
+// chrome: exposing one while its content frame is cloaked produces exactly the
+// broken state this library exists to prevent — an invisible browser that owns
+// the keyboard with only a "Recover" bubble on screen.
+static BOOL isChromeWindow(NSWindow *w) {
+    if (!w) return NO;
+    NSString *classes[] = {
+        @"BrowserNativeWidgetWindow",
+        @"NativeWidgetMacNSWindow",
+        @"NativeWidgetMacOverlayNSWindow",
+    };
+    for (int i = 0; i < 3; i++) {
+        Class cls = NSClassFromString(classes[i]);
+        if (cls && [w isKindOfClass:cls]) return YES;
+    }
+    return NO;
 }
 
 static void cloak(NSWindow *w) {
-    if (!isBrowserWindow(w)) return;
+    if (!isChromeWindow(w)) return;
     [w setAlphaValue:0.0];
     // A transparent frontmost window still owns its hit-test region. Moving it
     // offscreen used to avoid that, but sheets follow their parent frame and
@@ -113,7 +126,12 @@ static pid_t gPrevFrontPid = 0;
 static BOOL gHumanUIActive = NO;
 
 static BOOL isHumanWindow(NSWindow *w) {
-    return w && !isBrowserWindow(w) && [w canBecomeKeyWindow];
+    if (!w || isChromeWindow(w) || ![w canBecomeKeyWindow]) return NO;
+    // Save/Open panels and AppKit alerts are NSPanel subclasses. An attached
+    // sheet may be a private NSWindow subclass, so accept that relationship too.
+    // Deliberately do not accept every keyable non-browser window: Chromium's
+    // own Recover and download-history widgets satisfy that broad predicate.
+    return [w isKindOfClass:[NSPanel class]] || [w sheetParent] != nil;
 }
 
 static void rememberFrontApp(void) {
@@ -146,7 +164,9 @@ static void requestHumanActivation(void) {
     if ([current isActive]) return;
     [NSApp activateIgnoringOtherApps:YES];
     [NSApp activate];
-    [current activateWithOptions:NSApplicationActivateAllWindows];
+    // Do not use NSApplicationActivateAllWindows here. Chrome's restore and
+    // download-history surfaces belong to the same application and that option
+    // raises them alongside the one system panel the user actually needs.
 }
 
 static void activateHumanUI(NSWindow *w) {
@@ -193,7 +213,7 @@ static void handleSIGUSR2(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
         gHumanUIActive = NO;
         for (NSWindow *w in [NSApp windows]) {
-            if (!isBrowserWindow(w)) continue;
+            if (!isChromeWindow(w)) continue;
             // Normal hiding is alpha/click-through only, but Chrome or macOS may
             // independently leave a window in the Dock. Showing must recover
             // that state as well as restoring alpha, because a miniaturized
@@ -278,7 +298,7 @@ static void init(void) {
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
                 BOOL human = isHidden() && isHumanWindow(self);
                 if (human) beginHumanUI(self);
-                if (isBrowserWindow(self) && (shouldSuppress() || isHidden())) {
+                if (isChromeWindow(self) && (shouldSuppress() || isHidden())) {
                     cloak(self);
                     // Making a window key is itself an activation request: the
                     // system brings the owning app forward so the key window can
@@ -304,7 +324,7 @@ static void init(void) {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
                 BOOL human = isHidden() && isHumanWindow(self);
                 if (human) beginHumanUI(self);
-                if (isBrowserWindow(self) && shouldSuppress()) {
+                if (isChromeWindow(self) && shouldSuppress()) {
                     cloak(self);
                     ((void(*)(id, SEL))origIMP)(self, sel);
                     cloak(self);
@@ -329,7 +349,7 @@ static void init(void) {
         IMP origIMP = method_getImplementation(m);
         method_setImplementation(m, imp_implementationWithBlock(
             ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
-                BOOL hide = (place != NSWindowOut) && isHidden() && isBrowserWindow(self);
+                BOOL hide = (place != NSWindowOut) && isHidden() && isChromeWindow(self);
                 BOOL human = (place != NSWindowOut) && isHidden() && isHumanWindow(self);
                 if (human) beginHumanUI(self);
                 if (hide) cloak(self);
@@ -371,7 +391,7 @@ static void init(void) {
                 if (gHumanUIActive) requestHumanActivation();
                 if (!gHumanUIActive) yieldFocusBack();
                 for (NSWindow *w in [NSApp windows]) {
-                    if (!isBrowserWindow(w)) continue;
+                    if (!isChromeWindow(w)) continue;
                     cloak(w);
                 }
             }];

@@ -149,6 +149,21 @@ const MUTATIONS = [
       },
     ],
   },
+  {
+    name: 'recover-bubble-escapes-cloak',
+    describes:
+      'forgets that Chromium restore/download bubbles are browser-owned windows, so a hidden ' +
+      'session can expose one and take focus again after a native panel closes',
+    suite: 'tests/integration/window-scope.test.js',
+    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    edits: [
+      {
+        file: 'native/window_suppress.m',
+        from: '@"NativeWidgetMacNSWindow",',
+        to: '@"MutationDoesNotMatchRestoreWindow",',
+      },
+    ],
+  },
 ];
 
 const SKIP = new Set(['.git', 'node_modules', 'tmp', 'logs', '.playwright-cli']);

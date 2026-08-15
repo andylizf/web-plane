@@ -71,6 +71,11 @@ test('hidden state is click-through without moving browser frames or their nativ
   );
   assert.equal(observed.humanUIActive, true, 'native UI did not receive foreground activation');
   assert.equal(observed.activeAfterClose, false, 'focus suppression was not re-armed after native UI closed');
+  assert.equal(observed.recoverAlpha, 0, 'Chrome Recover UI was visible while the browser was hidden');
+  assert.equal(observed.recoverIgnoresMouse, true, 'hidden Chrome Recover UI kept a live hit region');
+  assert.equal(observed.activeAfterRecover, false, 'Chrome Recover UI re-activated the hidden browser');
   assert.equal(observed.browserAlphaAfterShow, 1);
   assert.equal(observed.browserIgnoresMouseAfterShow, false, 'show left the browser click-through');
+  assert.equal(observed.recoverAlphaAfterShow, 1, 'show did not restore Chrome Recover UI');
+  assert.equal(observed.recoverIgnoresMouseAfterShow, false, 'show left Chrome Recover UI click-through');
 });
