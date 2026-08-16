@@ -24,8 +24,8 @@ echo "$OUT" | sed 's/^/   /'
 PORT="$(echo "$OUT" | awk '/CDP port:/ {print $3}')"
 [ -n "$PORT" ] || { echo "FAIL: no CDP port printed"; exit 1; }
 
-echo "-> agent-browser --session $SESSION connect $PORT"
-agent-browser --session "$SESSION" connect "$PORT" >/dev/null
+echo "-> agent-browser --session $SESSION --pin-tab connect $PORT"
+agent-browser --session "$SESSION" --pin-tab connect "$PORT" >/dev/null
 
 WD="$(agent-browser --session "$SESSION" eval 'navigator.webdriver' | tail -1)"
 echo "   navigator.webdriver = $WD"

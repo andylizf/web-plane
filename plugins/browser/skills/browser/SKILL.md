@@ -105,7 +105,8 @@ Starts or reuses the hidden browser for that profile, opens `<url>` in a tab lab
 `cdp` + `connect` by hand — the manual path has three ways to slip: forgetting
 `--session` (every agent then shares one daemon, and a second `connect` against a daemon
 that already holds a browser is a *silent no-op*, so you drive someone else's browser while
-believing it's yours), landing on a stray tab, and hardcoding a port that changes each launch.
+believing it's yours), forgetting strict `--pin-tab` target binding, and hardcoding a port
+that changes each launch.
 
 ### Driving — always through the lane
 ```
@@ -113,11 +114,11 @@ web-plane lane <lane> snapshot
 web-plane lane <lane> click e3
 web-plane lane <lane> get url
 ```
-`web-plane lane` checks whether your tab is still the active one, re-pins only if it isn't,
-and then runs the agent-browser command against it. The check is load-bearing: a re-pin
-clears the snapshot ref table, so `snapshot` followed by `click e3` only works when nothing
-moved the pointer in between. If something did, the refs are gone — take a fresh snapshot
-instead of reusing them.
+`attach` gives each named agent-browser session a strict persistent CDP target binding.
+`web-plane lane` activates that already-bound target directly through CDP, making
+Chrome-owned UI observable without reselecting it through agent-browser or invalidating refs
+from the preceding snapshot. The wrapper adds web-plane's blocking-UI checks before and after
+the page command.
 
 **Read back every write.** `type`, `click`, `select` report success for having dispatched the
 action, not for the page having changed: a `type` into a populated field may append instead of
@@ -126,13 +127,25 @@ committing. All three look exactly like `✓ Done`. After any write that matters
 back — from a fresh snapshot, or better from the server if the page can be re-fetched — before
 building anything on top of it.
 
-**Do not call `agent-browser` directly on a shared browser.** agent-browser tracks one
-active tab per session, and *any* session opening a tab drags every other session's pointer
-onto it — and leaves it there. Two agents silently converge onto one tab the first time
-either follows a link into a new one, and from then on they overwrite each other. The
-re-pin is what prevents that; `lane` just makes it unforgettable.
+**Do not call `agent-browser` directly on a shared browser.** Version 0.34 keeps each
+session on its own pinned target, but a direct call bypasses web-plane's native UI gate.
+That can report a successful click while WebAuthn, Save/Open, or another Chrome-owned
+surface has taken the input. `lane` is the single command boundary for both protections.
 
 A lane owns exactly one tab. If you need a second page, take a second lane.
+Lanes on the same profile keep independent pinned targets; `web-plane lane`
+serializes only the target activation, command, and UI checks because Chrome has
+one selected tab.
+
+### Blocking UI — detect first, show only by decision
+`web-plane lane` reports blocking UI before and after page commands. If it returns
+`UI_BLOCKED`, do not retry the same input. Inspect the unified read-only state:
+```
+web-plane -s=<profile> ui status
+```
+Choose from the reported actions: wait, navigate to abort the owning request, use the typed
+`panel` commands for Save/Open, or explicitly `show` when a human should take over. Detection
+never shows a window by itself, and unknown/protected system UI is never generically clicked.
 
 ### Checking the setup is real
 ```

@@ -13,7 +13,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel', 'ui']);
 
 // Commands playwright-cli answers about *itself*. Proxying them succeeds and
 // prints something authoritative-looking that has nothing to do with web-plane:
@@ -89,6 +89,10 @@ Native Save/Open panels:
                           Select the exact path and press Save/Open
   panel cancel            Cancel the active Save/Open panel
 
+Blocking UI:
+  ui status               Report browser modals and native panels without
+                          showing them or taking focus
+
 Integration (drive with agent-browser):
   attach [--as <lane>] <url>
                           One step: start/reuse a hidden session, open <url> in a
@@ -98,11 +102,11 @@ Integration (drive with agent-browser):
                           lane. Concurrent agents on one identity: same -s,
                           different --as.
   lane <lane> <args...>   Run an agent-browser command against that lane's tab,
-                          re-pinning it first. Use this instead of calling
-                          agent-browser directly whenever a browser is shared —
-                          any agent opening a tab moves everyone else's cursor.
+                          using its persistent pinned target and web-plane's UI
+                          gate. Use this instead of calling agent-browser
+                          directly so blocking native UI cannot go unnoticed.
   cdp [url]               Start/reuse a hidden session and print its CDP port
-                          plus a ready 'agent-browser --session <name> connect' line
+                          plus a ready pinned agent-browser connection line
 
 Flags:
   -s=<name>               Named session (persistent across commands)
@@ -122,7 +126,7 @@ Examples:
   web-plane doctor
   web-plane profiles                # inventory of profiles and what each holds
   web-plane -s=work attach https://example.com   # start + open + connect, one step
-  web-plane cdp                     # then: agent-browser --session <name> connect <port>`);
+  web-plane cdp                     # then: agent-browser --session <name> --pin-tab connect <port>`);
   process.exit(0);
 }
 
@@ -151,7 +155,7 @@ if (command === 'install') {
   process.exit(doctor());
 } else if (command === 'lane') {
   const { lane } = await import('../lib/cdp.js');
-  lane(commandArgs[0], commandArgs.slice(1));
+  await lane(commandArgs[0], commandArgs.slice(1));
 } else if (command === 'attach') {
   const { attach } = await import('../lib/cdp.js');
   const { lane, rest } = parseLaneFlag(commandArgs);
@@ -190,6 +194,11 @@ if (command === 'install') {
 } else if (command === 'panel') {
   const { runPanelCommand } = await import('../lib/panel.js');
   const result = await runPanelCommand(parseSessionFlag(rawArgs), stripSessionFlag(commandArgs));
+  console.log(JSON.stringify(result, null, 2));
+  process.exit(result.ok ? 0 : 1);
+} else if (command === 'ui') {
+  const { runUICommand } = await import('../lib/ui.js');
+  const result = await runUICommand(parseSessionFlag(rawArgs), stripSessionFlag(commandArgs));
   console.log(JSON.stringify(result, null, 2));
   process.exit(result.ok ? 0 : 1);
 } else if (MISLEADING_PROXIES[command]) {

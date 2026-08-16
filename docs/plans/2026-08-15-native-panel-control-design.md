@@ -13,7 +13,9 @@ web-plane -s=<session> panel cancel
 
 This is not general desktop automation. JavaScript dialogs remain Playwright's
 responsibility, file inputs should use `setInputFiles`, and protected system UI
-(Touch ID, Keychain, passwords, privacy consent) remains explicitly human-only.
+(Touch ID, Keychain, passwords, privacy consent) is not generically automated.
+The agent decides whether to wait, abort the owning request, or show it to a
+human.
 
 ## Design
 
@@ -33,8 +35,8 @@ the caller. No global Accessibility permission is needed.
 
 The bridge exposes typed state and three actions; it never accepts Objective-C
 selectors or generic UI instructions. Paths must be absolute. A visible session
-is never intercepted. If a hidden pending panel receives no command for 30
-seconds, or the session is shown, normal human-facing presentation resumes.
+is never intercepted. A hidden pending panel stays deferred until a typed action
+handles it or the agent explicitly shows the session for human interaction.
 
 ## Failure behavior
 

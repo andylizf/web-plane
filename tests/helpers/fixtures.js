@@ -100,8 +100,14 @@ export function makeRuntime(home, opts = {}) {
   }
 
   if (dylib === 'legacy') writeFileSync(join(runtime, 'window_suppress.dylib'), 'pid protocol\n');
-  else if (dylib) {
+  else if (dylib === 'panel-only') {
     writeFileSync(join(runtime, 'window_suppress.dylib'), 'WEB_PLANE_RUN_ID\0.panel-request-\0');
+  }
+  else if (dylib) {
+    writeFileSync(
+      join(runtime, 'window_suppress.dylib'),
+      'WEB_PLANE_RUN_ID\0.panel-request-\0ui-status\0'
+    );
   }
   else rmSync(join(runtime, 'window_suppress.dylib'), { force: true });
   if (runtimeVersion !== null) writeFileSync(join(runtime, 'runtime-version'), `${runtimeVersion}\n`);

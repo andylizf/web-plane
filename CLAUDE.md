@@ -7,9 +7,14 @@ runtime:
 
 ```bash
 npm install -g github:andylizf/web-plane
+brew install agent-browser
 web-plane install
 web-plane doctor
 ```
+
+agent-browser 0.34.0 is the tested minimum because `attach` relies on its
+persistent `--pin-tab` CDP target binding. Install its native Homebrew package
+rather than adding another checkout or browser; web-plane supplies Chrome.
 
 This project is not published on npm. The `web-plane` registry name is a
 security placeholder, so never run `npm install -g web-plane`.

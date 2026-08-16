@@ -33,8 +33,10 @@ agent-browser's ergonomics with web-plane's undetectability, invisibly.
 ## Install (one-time)
 
 ```bash
-npm install -g github:andylizf/web-plane && web-plane install && web-plane doctor
-npm install -g agent-browser && agent-browser install
+npm install -g github:andylizf/web-plane
+brew install agent-browser
+web-plane install
+web-plane doctor
 ```
 
 The CLI is installed as a package copy, never with `npm link`; otherwise branch
@@ -44,6 +46,8 @@ DYLD window-suppression hook, and rebuilds a locked local playwright-cli — all
 under `~/.web-plane/`. Re-run it after a package upgrade or when `doctor` reports
 that the Chrome clone drifted. Requires macOS, Google Chrome, Node.js >= 22,
 Xcode Command Line Tools.
+No `agent-browser install` step is needed: it drives web-plane's managed Chrome
+over CDP instead of downloading another browser.
 
 ## Use
 
@@ -58,8 +62,9 @@ Xcode Command Line Tools.
    selects the lane: one agent-browser daemon and one labelled tab. Agents that
    share an identity use the same profile and different lanes.
 
-2. Drive through the lane so another agent opening a tab cannot silently move
-   your cursor:
+2. Drive through the lane. agent-browser keeps the lane bound to its own CDP
+   target; the wrapper activates that target for Chrome-owned UI and adds
+   blocking-UI checks without disturbing snapshot refs:
 
    ```bash
    web-plane lane task1 snapshot
@@ -73,10 +78,12 @@ Xcode Command Line Tools.
    ```
 
 For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
-`agent-browser --session main connect <port>` command it prints. Do not omit
-`--session`: unrelated callers otherwise share agent-browser's default daemon.
+`agent-browser --session main --pin-tab connect <port>` command it prints. Do
+not omit either flag: they isolate the daemon and its target binding.
 
 One lane owns one tab. Use another lane when the task needs another page.
+Lanes sharing one profile keep independent pinned targets; web-plane briefly
+serializes each command boundary because Chrome has only one selected tab.
 
 ## Hide / show
 
@@ -90,6 +97,18 @@ web-plane -s=work close
 ```
 
 ## Dialog and native panel routing
+
+Start with the unified read-only status when page input stops taking effect:
+
+```bash
+web-plane -s=work ui status
+```
+
+`web-plane lane` checks this state before and after page commands. If it returns
+`UI_BLOCKED`, do not retry the same input. Choose from the blocker actions:
+wait, navigate to abort the request, handle a typed panel, or explicitly run
+`web-plane -s=work show` when a human should take over. Detection never shows a
+window by itself.
 
 - Handle JavaScript `alert`, `confirm`, `prompt`, and `beforeunload` through the
   browser driver's dialog API.
@@ -105,9 +124,10 @@ web-plane -s=work close
 
   Responses are JSON. After `accept`, verify the expected file or browser event;
   dismissal alone is not completion. Touch ID, Keychain, passwords, privacy
-  consent, and other protected system UI remain human-only. Hidden sessions hold
-  Save/Open presentation for 30 seconds; `web-plane -s=work show` releases a
-  pending panel immediately when a human should take over.
+  consent, and other protected system UI are not generically clicked. The agent
+  decides whether to wait, abort the owning request, or explicitly use
+  `web-plane -s=work show` for human interaction. Hidden sessions hold Save/Open
+  presentation until the agent handles it or chooses that handoff.
 
 ## Caveats
 

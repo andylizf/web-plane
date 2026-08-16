@@ -110,14 +110,14 @@ int main(int argc, const char *argv[]) {
         NSPoint sheetOrigin = [sheet frame].origin;
         printf("{\"browserAlpha\":%.0f,\"browserX\":%.0f,"
                "\"browserIgnoresMouse\":%s,"
-               "\"panelAlpha\":%.0f,\"panelX\":%.0f,"
-               "\"sheetAlpha\":%.0f,\"sheetX\":%.0f,"
+               "\"panelAlpha\":%.0f,\"panelIgnoresMouse\":%s,\"panelX\":%.0f,"
+               "\"sheetAlpha\":%.0f,\"sheetIgnoresMouse\":%s,\"sheetX\":%.0f,"
                "\"sheetVisible\":%s,\"panelOnScreen\":%s,"
                "\"sheetOnScreen\":%s,\"humanUIActive\":%s,",
                [browser alphaValue], browserOrigin.x,
                [browser ignoresMouseEvents] ? "true" : "false",
-               [panel alphaValue], panelOrigin.x,
-               [sheet alphaValue], sheetOrigin.x,
+               [panel alphaValue], [panel ignoresMouseEvents] ? "true" : "false", panelOrigin.x,
+               [sheet alphaValue], [sheet ignoresMouseEvents] ? "true" : "false", sheetOrigin.x,
                [sheet isVisible] ? "true" : "false",
                serverInfo([panel windowNumber]) ? "true" : "false",
                serverInfo([sheet windowNumber]) ? "true" : "false",

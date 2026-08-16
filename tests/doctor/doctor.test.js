@@ -60,9 +60,9 @@ test('the old generic patch marker does not pass as the run-id protocol', () => 
 });
 
 test('a runtime built for another protocol is rejected', () => {
-  const r = doctorOn('old-runtime', { runtimeVersion: '4' });
+  const r = doctorOn('old-runtime', { runtimeVersion: '5' });
   assert.equal(r.code, 1);
-  assert.match(r.stdout, /installed protocol 4 != package protocol 5/);
+  assert.match(r.stdout, /installed protocol 5 != package protocol 6/);
   assert.match(r.stdout, /fix: web-plane install/);
 });
 
@@ -106,6 +106,12 @@ test('a legacy pid-scoped dylib cannot pass beside the run-id patches', () => {
   const r = doctorOn('legacy-dylib', { dylib: 'legacy' });
   assert.equal(r.code, 1);
   assert.match(r.stdout, /run-id protocol marker absent/);
+});
+
+test('a panel-only dylib cannot pass as the UI-blocker protocol', () => {
+  const r = doctorOn('panel-only-dylib', { dylib: 'panel-only' });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /native UI-blocker marker absent/);
 });
 
 test('a clone behind system Chrome is reported as a warning, not a failure', () => {
