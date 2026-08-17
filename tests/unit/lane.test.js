@@ -47,7 +47,7 @@ test(`attach rejects agent-browser below ${MIN_AGENT_BROWSER} before launching C
 
   const result = runCli(
     ['-s=profile', 'attach', '--as', 'old-lane', 'https://example.com'],
-    { home, env: { PATH: `${bin}:${process.env.PATH}` } }
+    { home, env: { WEB_PLANE_TEST_AGENT_BROWSER_BIN: fake } }
   );
 
   assert.equal(result.code, 1);

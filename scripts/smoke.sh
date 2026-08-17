@@ -6,7 +6,7 @@
 #   cdp -> connect -> navigator.webdriver === false -> navigate/eval ->
 #   hide -> still drivable -> close
 #
-# Requires: web-plane installed (`web-plane install`) and agent-browser on PATH.
+# Requires: web-plane installed (`web-plane install`); its package supplies agent-browser.
 # Point WEB_PLANE at a local checkout to test a branch, e.g.
 #   WEB_PLANE="node $HOME/Projects/web-plane/bin/web-plane.js" scripts/smoke.sh
 #
@@ -24,21 +24,21 @@ echo "$OUT" | sed 's/^/   /'
 PORT="$(echo "$OUT" | awk '/CDP port:/ {print $3}')"
 [ -n "$PORT" ] || { echo "FAIL: no CDP port printed"; exit 1; }
 
-echo "-> agent-browser --session $SESSION --pin-tab connect $PORT"
-agent-browser --session "$SESSION" --pin-tab connect "$PORT" >/dev/null
+echo "-> web-plane agent-browser --session $SESSION --pin-tab connect $PORT"
+$WP agent-browser --session "$SESSION" --pin-tab connect "$PORT" >/dev/null
 
-WD="$(agent-browser --session "$SESSION" eval 'navigator.webdriver' | tail -1)"
+WD="$($WP agent-browser --session "$SESSION" eval 'navigator.webdriver' | tail -1)"
 echo "   navigator.webdriver = $WD"
 [ "$WD" = "false" ] || { echo "FAIL: expected webdriver=false (stealth broken / not attached)"; exit 1; }
 
-agent-browser --session "$SESSION" goto https://example.com >/dev/null
-TITLE="$(agent-browser --session "$SESSION" eval 'document.title' | tail -1)"
+$WP agent-browser --session "$SESSION" goto https://example.com >/dev/null
+TITLE="$($WP agent-browser --session "$SESSION" eval 'document.title' | tail -1)"
 echo "   title = $TITLE"
 echo "$TITLE" | grep -q "Example Domain" || { echo "FAIL: navigate/eval broken"; exit 1; }
 
 echo "-> hide, then confirm still drivable"
 $WP -s="$SESSION" hide >/dev/null
-R="$(agent-browser --session "$SESSION" eval '6*7' | tail -1)"
+R="$($WP agent-browser --session "$SESSION" eval '6*7' | tail -1)"
 echo "   eval after hide = $R"
 [ "$R" = "42" ] || { echo "FAIL: eval broken after hide"; exit 1; }
 

@@ -39,6 +39,8 @@ jobs:
         with:
           node-version: ${{ needs.declared-node.outputs.major }}
       - run: node --version
+      - name: install locked dependencies
+        run: npm ci
       - name: every JavaScript file parses
         run: npm run check
       - name: unit tests
@@ -132,6 +134,9 @@ jobs:
         with:
           node-version: ${{ needs.declared-node.outputs.major }}
       - run: node --version && sw_vers
+
+      - name: install locked dependencies
+        run: npm ci
 
       - name: the runner has a window server we can observe
         # Stated as its own step so "the display is locked / there is no GUI

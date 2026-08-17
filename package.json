@@ -26,8 +26,11 @@
     "test:integration": "node --test --test-concurrency=1 \"tests/integration/*.test.js\"",
     "test:mutation": "node tests/mutation/run.js"
   },
+  "dependencies": {
+    "agent-browser": "0.34.0"
+  },
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "os": [
     "darwin"

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
 import { runCli } from '../helpers/cli.js';
@@ -18,11 +18,10 @@ before(() => (home = makeTmpDir('cli-home')));
 after(() => home && removeTmpDir(home));
 
 test('the code needs the Node version package.json promises', () => {
-  // `show`/`hide`/`status` open a CDP socket through the global WebSocket, which
-  // does not exist before Node 22. Declaring a lower floor in `engines` is not a
-  // cosmetic error: on the version it advertises, every window command throws
-  // ReferenceError. This test is what makes the declared floor mean something —
-  // CI runs it on exactly that version.
+  // agent-browser 0.34 declares Node 24 as its floor. CI runs these tests on the
+  // exact major web-plane advertises, so lowering `engines` cannot make an
+  // impossible dependency graph look supported.
+  assert.ok(Number(process.versions.node.split('.')[0]) >= 24, process.version);
   assert.equal(typeof WebSocket, 'function', `no global WebSocket on ${process.version}`);
   assert.equal(typeof fetch, 'function', `no global fetch on ${process.version}`);
 });
@@ -36,9 +35,24 @@ test('--version prints the version and nothing else', () => {
 test('--help lists the commands that exist', () => {
   const r = runCli(['--help'], { home });
   assert.equal(r.code, 0);
-  for (const cmd of ['doctor', 'profiles', 'attach', 'lane', 'show', 'hide', 'status', 'panel', 'ui']) {
+  for (const cmd of ['doctor', 'profiles', 'attach', 'lane', 'agent-browser', 'show', 'hide', 'status', 'panel', 'ui']) {
     assert.match(r.stdout, new RegExp(`\\n  ${cmd}\\b`), `help does not document '${cmd}'`);
   }
+});
+
+test('the agent-browser proxy uses the packaged dependency instead of PATH', () => {
+  const bin = join(home, 'old-agent-browser');
+  const fake = join(bin, 'agent-browser');
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(fake, '#!/bin/sh\nprintf "agent-browser 0.33.2\\n"\n');
+  chmodSync(fake, 0o755);
+
+  const r = runCli(['agent-browser', '--version'], {
+    home,
+    env: { PATH: `${bin}:${process.env.PATH}` },
+  });
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout.trim(), 'agent-browser 0.34.0');
 });
 
 test('custom commands reject --profile instead of ignoring it or reading it as a URL', () => {

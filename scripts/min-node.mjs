@@ -4,8 +4,8 @@
  * CI installs exactly this version and runs the tests on it, which is what turns
  * the `engines` field from a comment into a promise. It mattered here: the field
  * said >=18 while `show`, `hide` and `status` all open a CDP socket through the
- * global WebSocket, which does not exist before Node 22 — so on the version the
- * package advertised, every window command threw ReferenceError.
+ * global WebSocket, which does not exist before Node 22. The current floor is
+ * Node 24 because the packaged agent-browser dependency requires it.
  */
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';

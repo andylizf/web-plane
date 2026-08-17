@@ -8,15 +8,14 @@ does the operating. The hidden launch neither shows a window nor takes focus (se
 ## Install (one-time)
 ```bash
 npm install -g github:andylizf/web-plane
-brew install agent-browser
 web-plane install
 web-plane doctor
 ```
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the DYLD
 window-suppression hook, and patches a local playwright-cli under `~/.web-plane/`. Idempotent,
 and it verifies the patch actually landed instead of assuming. Requires macOS, Google Chrome,
-Node ≥22, Xcode CLT. agent-browser 0.34.0 is the tested minimum because web-plane uses
-its persistent strict tab binding. Its separate Chrome download is not needed in CDP mode.
+Node ≥24, Xcode CLT. web-plane pins agent-browser 0.34.0 as an npm dependency because it
+uses its persistent strict tab binding. No second agent-browser or Chrome install is needed.
 
 ## Drive
 ```bash

@@ -94,8 +94,8 @@ function cleanupAgentBrowser(targetLane) {
   const pidFile = resolve(stateDir, `${targetLane}.pid`);
   if (!existsSync(pidFile)) return;
   const closed = spawnSync(
-    'agent-browser',
-    ['--session', targetLane, 'close'],
+    process.execPath,
+    [cliPath, 'agent-browser', '--session', targetLane, 'close'],
     { encoding: 'utf8' }
   );
   const pid = Number(readFileSync(pidFile, 'utf8').trim());

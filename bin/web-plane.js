@@ -13,7 +13,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel', 'ui']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel', 'ui', 'agent-browser']);
 
 // Commands playwright-cli answers about *itself*. Proxying them succeeds and
 // prints something authoritative-looking that has nothing to do with web-plane:
@@ -28,7 +28,8 @@ const MISLEADING_PROXIES = {
   },
 };
 
-const { command, globalArgs, commandArgs } = parseInvocation(rawArgs);
+const { command, commandIndex, globalArgs, commandArgs } = parseInvocation(rawArgs);
+const webPlaneFlagArgs = commandIndex >= 0 ? rawArgs.slice(0, commandIndex) : rawArgs;
 
 // The Princeton VPN renewal daemon runs as root, while its browser is owned by
 // the console user's LaunchAgent.  A root-side `eval` cannot attach to that
@@ -43,12 +44,21 @@ if (process.getuid?.() === 0 && command === 'eval' &&
 
 // Version before help: `--version` carries no command word, so a help check that
 // only looked for a missing command answered it with the whole usage screen.
-if (rawArgs.includes('--version') || rawArgs.includes('-v')) {
+if (
+  (command === 'agent-browser' ? webPlaneFlagArgs : rawArgs).some(
+    (arg) => arg === '--version' || arg === '-v'
+  )
+) {
   console.log(pkg.version);
   process.exit(0);
 }
 
-if (!command || rawArgs.includes('--help') || rawArgs.includes('-h')) {
+if (
+  !command ||
+  (command === 'agent-browser' ? webPlaneFlagArgs : rawArgs).some(
+    (arg) => arg === '--help' || arg === '-h'
+  )
+) {
   console.log(`web-plane v${pkg.version} — ${pkg.description}
 
 Usage: web-plane [flags] <command> [args]
@@ -94,6 +104,8 @@ Blocking UI:
                           showing them or taking focus
 
 Integration (drive with agent-browser):
+  agent-browser <args...> Run web-plane's pinned agent-browser dependency. Use
+                          this for a manual CDP connection; no separate install.
   attach [--as <lane>] <url>
                           One step: start/reuse a hidden session, open <url> in a
                           labelled tab, and connect an isolated agent-browser
@@ -126,7 +138,7 @@ Examples:
   web-plane doctor
   web-plane profiles                # inventory of profiles and what each holds
   web-plane -s=work attach https://example.com   # start + open + connect, one step
-  web-plane cdp                     # then: agent-browser --session <name> --pin-tab connect <port>`);
+  web-plane cdp                     # then use the web-plane agent-browser line it prints`);
   process.exit(0);
 }
 
@@ -136,7 +148,7 @@ Examples:
 // another. Before this guard, a global --profile was silently ignored and a
 // command-local one could even be mistaken for attach/cdp's URL.
 if (
-  CUSTOM_COMMANDS.has(command) &&
+  CUSTOM_COMMANDS.has(command) && command !== 'agent-browser' &&
   rawArgs.some((arg) => arg === '--profile' || arg.startsWith('--profile='))
 ) {
   console.error(
@@ -156,6 +168,10 @@ if (command === 'install') {
 } else if (command === 'lane') {
   const { lane } = await import('../lib/cdp.js');
   await lane(commandArgs[0], commandArgs.slice(1));
+} else if (command === 'agent-browser') {
+  const { runAgentBrowser } = await import('../lib/agent-browser.js');
+  const result = runAgentBrowser(commandArgs, { stdio: 'inherit' });
+  process.exit(result.status ?? 1);
 } else if (command === 'attach') {
   const { attach } = await import('../lib/cdp.js');
   const { lane, rest } = parseLaneFlag(commandArgs);

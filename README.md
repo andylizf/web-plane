@@ -35,7 +35,6 @@ from GitHub:
 
 ```bash
 npm install -g github:andylizf/web-plane
-brew install agent-browser
 web-plane install
 web-plane doctor
 ```
@@ -52,11 +51,11 @@ does not touch profiles or login state. Re-run it after upgrading the package or
 when `doctor` reports an old Chrome clone. A background Chrome update that only
 changes the clone's signature is healed automatically on the next launch.
 
-These are package installs, not links to a checkout. `brew install agent-browser`
-must provide at least 0.34.0; `doctor` verifies that. Do not run
-`agent-browser install`: web-plane already provides the Chrome process over CDP.
+agent-browser 0.34.0 is a pinned npm dependency of web-plane; it is installed by
+the first command and checked by `doctor`. Do not install another copy and do
+not run `agent-browser install`: web-plane already provides Chrome over CDP.
 
-Requires: macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
+Requires: macOS, Google Chrome, Node.js >= 24, Xcode Command Line Tools.
 
 ### Screen Time will break this, silently
 
@@ -220,9 +219,10 @@ the same browser remain usable. The response lists the available choices;
 `show` is an explicit agent decision, not a side effect of detection.
 
 For a manual connection, run `web-plane -s=work cdp` and use the exact
-`agent-browser --session work --pin-tab connect <port>` command it prints. Both
-flags matter: `--session` isolates the daemon and `--pin-tab` prevents it from
-adopting another session's target.
+`web-plane agent-browser --session work --pin-tab connect <port>` command it
+prints. Both flags matter: `--session` isolates the daemon and `--pin-tab`
+prevents it from adopting another session's target. The wrapper selects
+web-plane's pinned dependency even if an older `agent-browser` exists on PATH.
 
 web-plane keeps `show`/`hide`/`status`/`close`; agent-browser owns page
 operations. The CDP port is auto-assigned — read it from `cdp` output rather than

@@ -34,7 +34,6 @@ agent-browser's ergonomics with web-plane's undetectability, invisibly.
 
 ```bash
 npm install -g github:andylizf/web-plane
-brew install agent-browser
 web-plane install
 web-plane doctor
 ```
@@ -44,8 +43,9 @@ switches can change production code underneath the installed runtime.
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the
 DYLD window-suppression hook, and rebuilds a locked local playwright-cli — all
 under `~/.web-plane/`. Re-run it after a package upgrade or when `doctor` reports
-that the Chrome clone drifted. Requires macOS, Google Chrome, Node.js >= 22,
-Xcode Command Line Tools.
+that the Chrome clone drifted. Requires macOS, Google Chrome, Node.js >= 24,
+Xcode Command Line Tools. agent-browser 0.34.0 is installed as web-plane's
+pinned npm dependency; do not install another copy.
 No `agent-browser install` step is needed: it drives web-plane's managed Chrome
 over CDP instead of downloading another browser.
 
@@ -78,8 +78,8 @@ over CDP instead of downloading another browser.
    ```
 
 For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
-`agent-browser --session main --pin-tab connect <port>` command it prints. Do
-not omit either flag: they isolate the daemon and its target binding.
+`web-plane agent-browser --session main --pin-tab connect <port>` command it
+prints. Do not omit either flag: they isolate the daemon and its target binding.
 
 One lane owns one tab. Use another lane when the task needs another page.
 Lanes sharing one profile keep independent pinned targets; web-plane briefly
