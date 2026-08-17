@@ -106,14 +106,12 @@ activation, so on 26.x a hook on it alone is close to decorative.
    handing the foreground back *is* an activation of another app.
 5. **Browser process only.** The dylib is injected into every renderer, GPU and
    utility child; they are filtered out by `--type=` in the argument list.
-6. **Human-facing native UI is a scoped exception.** A non-browser window that
-   can become key (for example a Screen Time panel, or a Save/Open panel in a
-   visible session) temporarily permits activation while it is visible. When the
-   last such window closes, the timer re-arms suppression and returns focus to
-   the application that was previously in front. Hidden-session Save/Open panels
-   are intercepted before display for typed agent control; Open's remote-service
-   proxy remains alpha-zero and does not lift activation suppression. Browser
-   frames remain transparent and click-through throughout.
+6. **Native UI is deferred, not auto-presented.** A keyable non-browser panel
+   remains transparent and click-through while the session is hidden, and it
+   cannot lift activation suppression merely by appearing. `ui status` reports
+   the blocker so the agent can wait, use typed Save/Open control, abort the
+   owning request, or explicitly show the session for a human. Open's remote-
+   service proxy remains alpha-zero during typed automation.
 
 Moving a hidden frame to `(-9999, -9999)` is deliberately not part of this
 design. Sheets follow their parent there, and macOS clamps extreme coordinates,

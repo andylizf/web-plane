@@ -1,57 +1,57 @@
-import { test } from 'node:test';
+import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { activeTabLabel } from '../../lib/cdp.js';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { MIN_AGENT_BROWSER } from '../../lib/config.js';
+import { activeTargetId } from '../../lib/cdp.js';
+import { runCli } from '../helpers/cli.js';
+import { makeTmpDir, removeTmpDir } from '../helpers/tmpdir.js';
 
-// Whether a lane re-pins before every command decides whether two agents sharing
-// one browser stay on their own tabs. Both answers are costly: pinning when it
-// was not needed throws away the snapshot ref table (so `snapshot` then `click
-// e3` stops working), and not pinning when it was needed drives somebody else's
-// page. So the parse has to be exact, and anything unclear must mean "pin".
+let root;
+before(() => (root = makeTmpDir('lane')));
+after(() => root && removeTmpDir(root));
 
-const ESC = '\u001b';
-
-const listing = (lines) => lines.join('\n') + '\n';
-
-test('reads the label of the tab marked active', () => {
-  const out = listing([
-    '  [t1] research  Example Domain - https://example.com',
-    '→ [t2] work      GitHub - https://github.com',
-  ]);
-  assert.equal(activeTabLabel(out), 'work');
+test('reads only the active stable target id from agent-browser JSON', () => {
+  const listing = JSON.stringify({
+    success: true,
+    data: {
+      tabs: [
+        { active: false, tabId: 't1', targetId: 'TARGET-A' },
+        { active: true, tabId: 't2', targetId: 'TARGET-B' },
+      ],
+    },
+  });
+  assert.equal(activeTargetId(listing), 'TARGET-B');
+  assert.equal(activeTargetId('{not-json'), null);
+  assert.equal(activeTargetId(JSON.stringify({ success: true, data: { tabs: [] } })), null);
 });
 
-test('sees through the colour codes agent-browser emits', () => {
-  const out = listing([
-    `  [t1] research  Example Domain - https://example.com`,
-    `${ESC}[32m→${ESC}[0m [t2] ${ESC}[1mwork${ESC}[0m      GitHub - https://github.com`,
-  ]);
-  assert.equal(activeTabLabel(out), 'work');
+test('a lane without a web-plane mapping cannot launch an unrelated browser', () => {
+  const home = join(root, 'unmapped-home');
+  mkdirSync(home, { recursive: true });
+  const result = runCli(['lane', 'unmapped', 'snapshot'], { home });
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /has no web-plane session mapping/);
+  assert.match(result.stderr, /attach --as unmapped/);
 });
 
-test('an active tab belonging to another lane is reported as that lane', () => {
-  // The caller compares this against its own name; returning the other lane's
-  // label is what makes it decide to re-pin.
-  const out = listing(['→ [t1] research  Example - https://example.com', '  [t2] work  GitHub']);
-  assert.equal(activeTabLabel(out), 'research');
-});
+test(`attach rejects agent-browser below ${MIN_AGENT_BROWSER} before launching Chrome`, () => {
+  const home = join(root, 'old-version-home');
+  const bin = join(root, 'old-version-bin');
+  mkdirSync(home, { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  const fake = join(bin, 'agent-browser');
+  writeFileSync(fake, '#!/bin/sh\nprintf "agent-browser 0.33.2\\n"\n');
+  chmodSync(fake, 0o755);
 
-test('no active marker means no answer', () => {
-  const out = listing(['  [t1] research  Example', '  [t2] work  GitHub']);
-  assert.equal(activeTabLabel(out), null);
-});
+  const result = runCli(
+    ['-s=profile', 'attach', '--as', 'old-lane', 'https://example.com'],
+    { home, env: { WEB_PLANE_TEST_AGENT_BROWSER_BIN: fake } }
+  );
 
-test('an unparseable or empty listing means no answer', () => {
-  assert.equal(activeTabLabel(''), null);
-  assert.equal(activeTabLabel(null), null);
-  assert.equal(activeTabLabel('→ something that is not a tab line\n'), null);
-});
-
-test('an unlabelled tab does not answer with its title', () => {
-  // A tab opened outside web-plane has no lane label; the token after the id is
-  // then part of the title, and treating that as a lane name would leave the
-  // agent driving whatever page happened to be open.
-  const out = listing(['→ [t1] https://example.com']);
-  assert.equal(activeTabLabel(out), 'https://example.com');
-  // ...which is not a lane name, so a lane called `work` still re-pins.
-  assert.notEqual(activeTabLabel(out), 'work');
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, new RegExp(`below the required ${MIN_AGENT_BROWSER.replace(/\./g, '\\.')}`));
+  assert.match(result.stderr, /strict session-to-tab binding/);
+  assert.doesNotMatch(result.all, /Failed to start hidden session/);
 });

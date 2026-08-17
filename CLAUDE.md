@@ -11,6 +11,11 @@ web-plane install
 web-plane doctor
 ```
 
+agent-browser 0.34.0 is a pinned package dependency because `attach` relies on
+its persistent `--pin-tab` CDP target binding. Do not install a second copy or
+its separate browser; web-plane supplies Chrome. Node.js 24 or newer is required
+by both the package metadata and that dependency.
+
 This project is not published on npm. The `web-plane` registry name is a
 security placeholder, so never run `npm install -g web-plane`.
 
@@ -39,6 +44,7 @@ runtime explicitly:
 
 ```bash
 export WEB_PLANE_RUNTIME_DIR="$PWD/tmp/dev-runtime"
+npm ci
 node ./bin/web-plane.js install
 node ./bin/web-plane.js doctor
 ```
@@ -48,6 +54,7 @@ than linking the checkout:
 
 ```bash
 mkdir -p ./tmp/package-smoke
+npm ci
 npm pack --pack-destination ./tmp/package-smoke
 npm install -g --prefix ./tmp/package-smoke/prefix ./tmp/package-smoke/web-plane-*.tgz
 ./tmp/package-smoke/prefix/bin/web-plane --version

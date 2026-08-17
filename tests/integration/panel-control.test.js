@@ -151,6 +151,27 @@ test('pending native panel cancels without ever displaying', async () => {
   assert.equal(complete.visible, false);
 });
 
+test('UI status exposes a pending Save panel through the generic blocker contract', async () => {
+  const running = await launchPanel('save', dir);
+  const response = await sendPanelRequest(
+    running.chrome,
+    { action: 'ui-status' },
+    { runDir }
+  );
+  assert.equal(response.ok, true, JSON.stringify(response));
+  assert.equal(response.blockers.length, 1);
+  assert.equal(response.blockers[0].kind, 'native-panel');
+  assert.equal(response.blockers[0].subtype, 'save');
+  assert.equal(response.blockers[0].panel.pending, true);
+  const cancel = await sendPanelRequest(
+    running.chrome,
+    { action: 'cancel', panelId: response.blockers[0].panel.id },
+    { runDir }
+  );
+  assert.equal(cancel.ok, true, JSON.stringify(cancel));
+  await running.nextLine();
+});
+
 test('stale requests are rejected without acting on the pending panel', async () => {
   const running = await launchPanel('save', dir);
   const oldResponse = await sendPanelRequest(
@@ -195,10 +216,11 @@ test('a visible-session panel is not intercepted and can still be cancelled', as
   assert.equal(complete.visible, false);
 });
 
-test('showing the session releases a pending panel to the human fallback', async () => {
+test('showing the session releases a pending panel for explicit human handoff', async () => {
   const running = await launchPanel('save', dir);
   assert.equal((await status(running)).pending, true);
   rmSync(running.hiddenFlag, { force: true });
+  process.kill(running.proc.pid, 'SIGUSR2');
   await sleep(250);
   const panel = await status(running);
   assert.equal(panel.pending, false);

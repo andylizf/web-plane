@@ -7,14 +7,15 @@ does the operating. The hidden launch neither shows a window nor takes focus (se
 
 ## Install (one-time)
 ```bash
-npm install -g github:andylizf/web-plane && web-plane install && web-plane doctor
-npm install -g agent-browser && agent-browser install
+npm install -g github:andylizf/web-plane
+web-plane install
+web-plane doctor
 ```
 `web-plane install` clones your system Chrome (APFS copy-on-write), compiles the DYLD
 window-suppression hook, and patches a local playwright-cli under `~/.web-plane/`. Idempotent,
 and it verifies the patch actually landed instead of assuming. Requires macOS, Google Chrome,
-Node ≥22, Xcode CLT. agent-browser must be ≥ 0.33 — below that, concurrent sessions cannot
-hold separate tabs.
+Node ≥24, Xcode CLT. web-plane pins agent-browser 0.34.0 as an npm dependency because it
+uses its persistent strict tab binding. No second agent-browser or Chrome install is needed.
 
 ## Drive
 ```bash
@@ -26,10 +27,9 @@ web-plane lane work eval "navigator.webdriver"           # => false (confirm ste
 `-s` is the profile (login identity, one Chrome process); `--as` is your lane (one daemon +
 one labelled tab). Several agents on one identity: same `-s`, different `--as`.
 
-Drive through `web-plane lane`, not `agent-browser` directly: it re-pins your tab first.
-Without that, the moment any session opens a tab, every other session's pointer moves to it
-and stays — so two agents end up writing over each other on one page. A lane owns one tab;
-need a second page, take a second lane.
+Drive through `web-plane lane`, not `agent-browser` directly. agent-browser owns the pinned
+target; the wrapper activates it through CDP and adds web-plane's pre/post blocking-UI gate
+without invalidating snapshot refs. A lane owns one tab; need a second page, take a second lane.
 
 ## Check it's actually on
 ```bash
@@ -47,7 +47,7 @@ web-plane -s=main status          # session, PID, CDP port, hidden/minimized/vis
 web-plane -s=main close
 ```
 Visibility is per *profile*, not per lane — one browser, one window. Showing it shows
-whatever tab is in front, so re-pin your lane before you `show` for a human handoff.
+whatever tab is in front, so snapshot your lane immediately before `show` for a human handoff.
 Hidden is the resting state; `show` is only for a staged human handoff — see "Visibility
 choreography" in SKILL.md. Because `show` grabs the foreground, never fire it casually;
 fire it once, when the screen is exactly the one the human must act on. `show` also

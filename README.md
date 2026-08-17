@@ -51,7 +51,11 @@ does not touch profiles or login state. Re-run it after upgrading the package or
 when `doctor` reports an old Chrome clone. A background Chrome update that only
 changes the clone's signature is healed automatically on the next launch.
 
-Requires: macOS, Google Chrome, Node.js >= 22, Xcode Command Line Tools.
+agent-browser 0.34.0 is a pinned npm dependency of web-plane; it is installed by
+the first command and checked by `doctor`. Do not install another copy and do
+not run `agent-browser install`: web-plane already provides Chrome over CDP.
+
+Requires: macOS, Google Chrome, Node.js >= 24, Xcode Command Line Tools.
 
 ### Screen Time will break this, silently
 
@@ -145,6 +149,7 @@ web-plane toggle
 web-plane status                        # PID, CDP port, visibility
 
 # Native Save/Open panel control (JSON responses)
+web-plane -s=research ui status
 web-plane -s=research panel status
 web-plane -s=research panel accept --path /Users/me/Downloads/report.pdf
 web-plane -s=research panel cancel
@@ -162,9 +167,9 @@ real AppKit `NSSavePanel`/`NSOpenPanel` windows owned by managed Chrome. It does
 not click Touch ID, Keychain, password, privacy-consent, or arbitrary desktop
 UI. `panel accept` refuses relative paths and existing Save targets, and the
 caller must still verify that the resulting download or open operation finished.
-While a managed session is hidden, Save/Open presentation is held for up to 30
-seconds so the agent can answer without showing UI or taking focus. Running
-`show` releases a pending panel immediately for normal human interaction.
+While a managed session is hidden, Save/Open presentation is held so the agent
+can answer without showing UI or taking focus. Running `show` releases a pending
+panel for normal human interaction.
 
 ## vs agent-browser
 
@@ -195,9 +200,29 @@ web-plane lane task1 click e3
 web-plane -s=work hide            # invisible; the lane keeps driving
 ```
 
-`attach` starts or reuses the hidden browser, opens a labelled tab, and binds a separate agent-browser session to it. Agents that share one login use the same `-s` profile and different `--as` lanes. `web-plane lane` reselects the lane's tab before driving it, so another agent opening a tab cannot silently move its cursor.
+`attach` starts or reuses the hidden browser, opens a labelled tab, and gives its
+agent-browser session a strict persistent target binding. Agents that share one
+login use the same `-s` profile and different `--as` lanes. agent-browser owns
+that binding; `web-plane lane` activates the already-bound target through CDP so
+Chrome-owned UI is observable, without reselecting it through agent-browser or
+invalidating refs from the preceding snapshot. The wrapper checks for blocking
+browser/native UI before and after each command. Page input fails closed;
+inspection and navigation remain available for diagnosis and recovery. Lanes
+on one profile keep independent pinned targets, while this command boundary is
+serialized because Chrome has only one selected tab.
 
-For a manual connection, run `web-plane -s=work cdp` and use the exact `agent-browser --session work connect <port>` command it prints. The `--session` flag is required: omitting it makes unrelated callers share agent-browser's default daemon.
+`web-plane -s=work ui status` reports blocking UI without displaying it. A
+browser-owned child modal such as WebAuthn is distinguished structurally from
+unparented Recover/download bubbles, without matching localized titles. The
+lane whose command exposed a tab-modal blocker is recorded, so other lanes in
+the same browser remain usable. The response lists the available choices;
+`show` is an explicit agent decision, not a side effect of detection.
+
+For a manual connection, run `web-plane -s=work cdp` and use the exact
+`web-plane agent-browser --session work --pin-tab connect <port>` command it
+prints. Both flags matter: `--session` isolates the daemon and `--pin-tab`
+prevents it from adopting another session's target. The wrapper selects
+web-plane's pinned dependency even if an older `agent-browser` exists on PATH.
 
 web-plane keeps `show`/`hide`/`status`/`close`; agent-browser owns page
 operations. The CDP port is auto-assigned — read it from `cdp` output rather than
@@ -214,6 +239,10 @@ web-plane CLI (Node.js)
     ├── open <url>  → playwright-cli with DYLD injection + real Chrome
     │
     ├── show/hide   → SIGUSR signals to Chrome process + CDP window positioning
+    │
+    ├── ui/panel    → typed requests to the injected AppKit bridge
+    │
+    ├── lane        → pinned agent-browser target + pre/post UI gate
     │
     └── *           → proxy to playwright-cli (snapshot, click, fill, eval, screenshot, ...)
 ```
@@ -241,7 +270,7 @@ observed effects and never that a command returned.
 ```bash
 npm run check             # every JS file parses (commands are imported lazily)
 npm run test:unit         # no display needed: session/profile resolution, lane
-                          # pinning, and show's verification rules fed synthetic
+                          # safety, and show's verification rules fed synthetic
                           # window-server states
 npm run test:doctor       # doctor against an install broken one layer at a time
 npm run test:integration  # a real cloned Chrome: launch → hide → show → close,

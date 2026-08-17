@@ -6,8 +6,8 @@
 // Therefore a hidden web-plane session intercepts async presentation while the
 // panel is still configurable. The agent supplies an exact path (or cancels),
 // and the original completion handler receives the matching modal result without
-// showing UI. If nobody responds within 30 seconds, presentation proceeds
-// normally so automation failure never removes the human fallback.
+// showing UI. An explicit `web-plane show` releases the presentation for human
+// input; detection alone never takes focus away from the user.
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
 #import <objc/runtime.h>
@@ -16,7 +16,6 @@
 
 static const NSInteger kPanelProtocol = 1;
 static const NSTimeInterval kRequestMaxAgeMs = 10000.0;
-static const NSTimeInterval kPendingFallbackSeconds = 30.0;
 static NSString *gRunDir = nil;
 static NSString *gRunId = nil;
 static NSString *gHiddenPath = nil;
@@ -92,6 +91,82 @@ static NSPanel *unsupportedNativePanel(void) {
     return nil;
 }
 
+static NSDictionary *currentPanelState(void);
+
+// Chromium's browser-owned dialogs are not AppKit panels. WebAuthn, for
+// example, is a keyable NativeWidgetMacNSWindow attached to the browser frame.
+// Recover, download-history and permission bubbles use the same private window
+// class, so the class name alone is not a modal signal; the parent relationship
+// is the stable distinction. Keep titles as evidence only, never as policy, so
+// this works across locales and for future Chromium child-modal surfaces.
+static const void *kUIBlockerIdKey = &kUIBlockerIdKey;
+
+static NSString *blockerIdForWindow(NSWindow *window) {
+    NSString *blockerId = objc_getAssociatedObject(window, kUIBlockerIdKey);
+    if (!blockerId) {
+        blockerId = [NSString stringWithFormat:@"window-%@", [[NSUUID UUID] UUIDString]];
+        objc_setAssociatedObject(
+            window, kUIBlockerIdKey, blockerId, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    return blockerId;
+}
+
+static NSArray *browserModalBlockers(void) {
+    NSMutableArray *blockers = [NSMutableArray array];
+    Class childClass = NSClassFromString(@"NativeWidgetMacNSWindow");
+    Class browserClass = NSClassFromString(@"BrowserNativeWidgetWindow");
+    if (!childClass || !browserClass) return blockers;
+    for (NSWindow *window in [NSApp windows]) {
+        if (![window isVisible] || ![window canBecomeKeyWindow]) continue;
+        if (![window isKindOfClass:childClass]) continue;
+        NSWindow *parent = [window parentWindow];
+        if (!parent || ![parent isKindOfClass:browserClass]) continue;
+        [blockers addObject:@{
+            @"id": blockerIdForWindow(window),
+            @"kind": @"browser-modal",
+            @"scope": @"tab",
+            @"blocking": @YES,
+            @"class": NSStringFromClass([window class]),
+            @"title": [window title] ?: @"",
+        }];
+    }
+    return blockers;
+}
+
+static NSDictionary *panelBlocker(NSDictionary *panel) {
+    return @{
+        @"id": [NSString stringWithFormat:@"panel-%@", panel[@"id"]],
+        @"kind": @"native-panel",
+        @"subtype": panel[@"kind"],
+        @"scope": @"window",
+        @"blocking": @YES,
+        @"title": panel[@"title"] ?: @"",
+        @"panel": panel,
+    };
+}
+
+static NSArray *currentUIBlockers(void) {
+    NSMutableArray *blockers = [NSMutableArray array];
+    NSDictionary *panel = currentPanelState();
+    if (panel) [blockers addObject:panelBlocker(panel)];
+
+    [blockers addObjectsFromArray:browserModalBlockers()];
+
+    NSPanel *unsupported = panel ? nil : unsupportedNativePanel();
+    if (unsupported) {
+        [blockers addObject:@{
+            @"id": blockerIdForWindow(unsupported),
+            @"kind": @"native-panel",
+            @"subtype": @"unsupported",
+            @"scope": @"app",
+            @"blocking": @YES,
+            @"class": NSStringFromClass([unsupported class]),
+            @"title": [unsupported title] ?: @"",
+        }];
+    }
+    return blockers;
+}
+
 static NSString *standardPath(NSString *path) {
     return [[path stringByStandardizingPath] stringByResolvingSymlinksInPath];
 }
@@ -155,15 +230,15 @@ static void presentPendingFallback(void) {
     [panel release];
 }
 
-static void checkPendingFallback(NSString *capturedId, NSTimeInterval deadline) {
+static void checkPendingFallback(NSString *capturedId) {
     if (!gPendingId || ![gPendingId isEqualToString:capturedId]) return;
-    if (!sessionIsHidden() || [[NSDate date] timeIntervalSince1970] >= deadline) {
+    if (!sessionIsHidden()) {
         presentPendingFallback();
         return;
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
                    dispatch_get_main_queue(), ^{
-        checkPendingFallback(capturedId, deadline);
+        checkPendingFallback(capturedId);
     });
 }
 
@@ -213,10 +288,9 @@ static BOOL capturePending(
     gPendingId = [[[NSUUID UUID] UUIDString] copy];
 
     NSString *capturedId = [gPendingId copy];
-    NSTimeInterval deadline = [[NSDate date] timeIntervalSince1970] + kPendingFallbackSeconds;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC),
                    dispatch_get_main_queue(), ^{
-        checkPendingFallback(capturedId, deadline);
+        checkPendingFallback(capturedId);
     });
     [capturedId release];
     return YES;
@@ -397,6 +471,12 @@ static void handleRequest(
     }
 
     NSString *action = request[@"action"];
+    if ([action isEqualToString:@"ui-status"]) {
+        writeResponse(responsePath, panelSuccess(requestId, @{
+            @"blockers": currentUIBlockers(),
+        }));
+        return;
+    }
     if ([action isEqualToString:@"status"]) {
         NSMutableDictionary *fields = [NSMutableDictionary dictionary];
         NSDictionary *state = currentPanelState();

@@ -138,10 +138,6 @@ static BOOL isBrowserProcess(void) {
 
 // Who had the keyboard when this process started — the app to hand it back to.
 static pid_t gPrevFrontPid = 0;
-// A hidden browser normally cannot activate itself. A native panel that needs a
-// human response is the one narrow exception: it may activate Chrome while it
-// is visible, then the timer restores the app that was in front before it.
-static BOOL gHumanUIActive = NO;
 
 static BOOL isHumanWindow(NSWindow *w) {
     if (!w || isChromeWindow(w) || isAgentPanelWindow(w) || ![w canBecomeKeyWindow]) return NO;
@@ -152,47 +148,26 @@ static BOOL isHumanWindow(NSWindow *w) {
     return [w isKindOfClass:[NSPanel class]] || [w sheetParent] != nil;
 }
 
-static void rememberFrontApp(void) {
-    NSRunningApplication *front = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    if (front && front.processIdentifier != getpid()) {
-        gPrevFrontPid = front.processIdentifier;
-    }
-}
-
-static void beginHumanUI(NSWindow *w) {
-    if (!isHidden() || !isHumanWindow(w)) return;
-    if (!gHumanUIActive) rememberFrontApp();
-    gHumanUIActive = YES;
-}
-
-static BOOL hasVisibleHumanUI(void) {
-    for (NSWindow *w in [NSApp windows]) {
-        if (isHumanWindow(w) && [w isVisible]) return YES;
-    }
-    return NO;
-}
-
 static BOOL shouldBlockSelfActivation(void) {
-    return isHidden() && !gHumanUIActive;
+    return isHidden();
 }
 
-static void requestHumanActivation(void) {
-    if (!isHidden() || !gHumanUIActive) return;
-    NSRunningApplication *current = [NSRunningApplication currentApplication];
-    if ([current isActive]) return;
-    [NSApp activateIgnoringOtherApps:YES];
-    [NSApp activate];
-    // Do not use NSApplicationActivateAllWindows here. Chrome's restore and
-    // download-history surfaces belong to the same application and that option
-    // raises them alongside the one system panel the user actually needs.
+static void cloakHumanWindow(NSWindow *w) {
+    if (!isHumanWindow(w)) return;
+    [w setAlphaValue:0.0];
+    [w setIgnoresMouseEvents:YES];
 }
 
-static void activateHumanUI(NSWindow *w) {
-    if (!isHidden() || !isHumanWindow(w)) return;
-    // gHumanUIActive is already true, so the activation swizzles below pass this
-    // through. This is necessary for sheets created by macOS itself: ordering
-    // the panel alone does not reliably make the process composited/frontmost.
-    requestHumanActivation();
+static void cloakHiddenWindow(NSWindow *w) {
+    cloak(w);
+    cloakHumanWindow(w);
+    cloakAgentPanel(w);
+}
+
+static void restorePresentedWindow(NSWindow *w) {
+    if (!isChromeWindow(w) && !isHumanWindow(w)) return;
+    [w setIgnoresMouseEvents:NO];
+    [w setAlphaValue:1.0];
 }
 
 // Backstop. The _activateWithInfo: hook below prevents the activation outright
@@ -222,16 +197,15 @@ static void yieldFocusBack(void) {
 static void handleSIGUSR1(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
         for (NSWindow *w in [NSApp windows]) {
-            cloak(w);
+            cloakHiddenWindow(w);
         }
     });
 }
 
 static void handleSIGUSR2(int sig) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        gHumanUIActive = NO;
         for (NSWindow *w in [NSApp windows]) {
-            if (!isChromeWindow(w)) continue;
+            if (!isChromeWindow(w) && !isHumanWindow(w)) continue;
             // Normal hiding is alpha/click-through only, but Chrome or macOS may
             // independently leave a window in the Dock. Showing must recover
             // that state as well as restoring alpha, because a miniaturized
@@ -261,9 +235,8 @@ static void handleSIGUSR2(int sig) {
             // CDP's `windowState: normal` is not an alternative: it reaches
             // NativeWidgetMac::Restore() -> SetMiniaturized(false) ->
             // [window_ deminiaturize:nil], the same call with the same race.
-            if ([w isMiniaturized]) [w makeKeyAndOrderFront:nil];
-            [w setIgnoresMouseEvents:NO];
-            [w setAlphaValue:1.0];
+            if (isChromeWindow(w) && [w isMiniaturized]) [w makeKeyAndOrderFront:nil];
+            restorePresentedWindow(w);
         }
     });
 }
@@ -316,10 +289,10 @@ static void init(void) {
             newIMP = imp_implementationWithBlock(^(NSWindow *self, id sender) {
                 BOOL agentPanel = isAgentPanelWindow(self);
                 BOOL human = isHidden() && isHumanWindow(self);
-                if (human) beginHumanUI(self);
                 if (agentPanel) cloakAgentPanel(self);
-                if (isChromeWindow(self) && (shouldSuppress() || isHidden())) {
-                    cloak(self);
+                BOOL hiddenChrome = isChromeWindow(self) && (shouldSuppress() || isHidden());
+                if (hiddenChrome || human) {
+                    cloakHiddenWindow(self);
                     // Making a window key is itself an activation request: the
                     // system brings the owning app forward so the key window can
                     // receive typing. Cloaking cannot prevent that, because the
@@ -333,7 +306,7 @@ static void init(void) {
                     } else {
                         ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
                     }
-                    cloak(self);
+                    cloakHiddenWindow(self);
                     return;
                 }
                 // The remote Open-panel service does not commit its selected URL
@@ -341,26 +314,24 @@ static void init(void) {
                 // Let makeKey run inside the process; the application-level hooks
                 // below still block Chrome from becoming the foreground app.
                 ((void(*)(id, SEL, id))origIMP)(self, sel, sender);
-                if (isHidden()) cloak(self);
+                if (isHidden()) cloakHiddenWindow(self);
                 if (agentPanel) cloakAgentPanel(self);
-                if (human) activateHumanUI(self);
             });
         } else {
             newIMP = imp_implementationWithBlock(^(NSWindow *self) {
                 BOOL agentPanel = isAgentPanelWindow(self);
                 BOOL human = isHidden() && isHumanWindow(self);
-                if (human) beginHumanUI(self);
                 if (agentPanel) cloakAgentPanel(self);
-                if (isChromeWindow(self) && shouldSuppress()) {
-                    cloak(self);
+                BOOL hiddenChrome = isChromeWindow(self) && (shouldSuppress() || isHidden());
+                if (hiddenChrome || human) {
+                    cloakHiddenWindow(self);
                     ((void(*)(id, SEL))origIMP)(self, sel);
-                    cloak(self);
+                    cloakHiddenWindow(self);
                     return;
                 }
                 ((void(*)(id, SEL))origIMP)(self, sel);
-                if (isHidden()) cloak(self);
+                if (isHidden()) cloakHiddenWindow(self);
                 if (agentPanel) cloakAgentPanel(self);
-                if (human) activateHumanUI(self);
             });
         }
         method_setImplementation(m, newIMP);
@@ -377,16 +348,14 @@ static void init(void) {
         IMP origIMP = method_getImplementation(m);
         method_setImplementation(m, imp_implementationWithBlock(
             ^(NSWindow *self, NSWindowOrderingMode place, NSInteger otherWin) {
-                BOOL hide = (place != NSWindowOut) && isHidden() && isChromeWindow(self);
+                BOOL hide = (place != NSWindowOut) && isHidden() &&
+                            (isChromeWindow(self) || isHumanWindow(self));
                 BOOL agentPanel = (place != NSWindowOut) && isAgentPanelWindow(self);
-                BOOL human = (place != NSWindowOut) && isHidden() && isHumanWindow(self);
-                if (human) beginHumanUI(self);
-                if (hide) cloak(self);
+                if (hide) cloakHiddenWindow(self);
                 if (agentPanel) cloakAgentPanel(self);
                 ((void(*)(id, SEL, NSWindowOrderingMode, NSInteger))origIMP)(self, sel, place, otherWin);
-                if (hide) cloak(self);
+                if (hide) cloakHiddenWindow(self);
                 if (agentPanel) cloakAgentPanel(self);
-                if (human) activateHumanUI(self);
             }));
     }
     // Continuous enforcement while hidden. Method swizzling alone can't hold a
@@ -406,24 +375,11 @@ static void init(void) {
         dispatch_async(dispatch_get_main_queue(), ^{
             NSTimer *t = [NSTimer timerWithTimeInterval:0.016 repeats:YES block:^(NSTimer *_t) {
                 if (!isHidden()) {
-                    gHumanUIActive = NO;
                     return;
                 }
-                // A human-facing native panel may temporarily own the foreground.
-                // Once its last visible window closes, re-arm suppression and
-                // return focus to the app that was active before the panel.
-                BOOL humanVisible = hasVisibleHumanUI();
-                if (humanVisible && !gHumanUIActive) {
-                    rememberFrontApp();
-                    gHumanUIActive = YES;
-                } else if (!humanVisible && gHumanUIActive) {
-                    gHumanUIActive = NO;
-                }
-                if (gHumanUIActive) requestHumanActivation();
-                if (!gHumanUIActive) yieldFocusBack();
+                yieldFocusBack();
                 for (NSWindow *w in [NSApp windows]) {
-                    if (isChromeWindow(w)) cloak(w);
-                    if (isAgentPanelWindow(w)) cloakAgentPanel(w);
+                    cloakHiddenWindow(w);
                 }
             }];
             [[NSRunLoop mainRunLoop] addTimer:t forMode:NSRunLoopCommonModes];

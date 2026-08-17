@@ -45,7 +45,7 @@ before(() => {
 
 after(() => dir && removeTmpDir(dir));
 
-test('hidden state is click-through without moving browser frames or their native UI', () => {
+test('hidden state defers native UI without moving browser frames or attached sheets', () => {
   // This suite deliberately owns the foreground. Establish a normal baseline
   // first: Notification Center can be the frontmost process while a notification
   // stack is open and refuses ordinary application activation, which makes the
@@ -73,9 +73,11 @@ test('hidden state is click-through without moving browser frames or their nativ
   assert.equal(observed.browserAlpha, 0);
   assert.equal(observed.browserX, 120, 'hiding changed the browser frame geometry');
   assert.equal(observed.browserIgnoresMouse, true);
-  assert.equal(observed.panelAlpha, 1);
+  assert.equal(observed.panelAlpha, 0);
+  assert.equal(observed.panelIgnoresMouse, true);
   assert.ok(observed.panelX + 520 > 100, `panel moved offscreen to x=${observed.panelX}`);
-  assert.equal(observed.sheetAlpha, 1);
+  assert.equal(observed.sheetAlpha, 0);
+  assert.equal(observed.sheetIgnoresMouse, true);
   assert.equal(observed.sheetVisible, true);
   assert.equal(observed.panelOnScreen, true, 'native panel was absent from WindowServer');
   assert.equal(observed.sheetOnScreen, true, 'native sheet was absent from WindowServer');
@@ -83,7 +85,7 @@ test('hidden state is click-through without moving browser frames or their nativ
     observed.sheetX >= 120 && observed.sheetX < 1020,
     `sheet did not stay attached to the browser frame: x=${observed.sheetX}`
   );
-  assert.equal(observed.humanUIActive, true, 'native UI did not receive foreground activation');
+  assert.equal(observed.humanUIActive, false, 'native UI took focus before an explicit show');
   assert.equal(observed.activeAfterClose, false, 'focus suppression was not re-armed after native UI closed');
   assert.equal(observed.recoverAlpha, 0, 'Chrome Recover UI was visible while the browser was hidden');
   assert.equal(observed.recoverIgnoresMouse, true, 'hidden Chrome Recover UI kept a live hit region');

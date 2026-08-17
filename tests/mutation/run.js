@@ -90,7 +90,7 @@ const MUTATIONS = [
     edits: [
       {
         file: 'native/window_suppress.m',
-        from: 'if ([w isMiniaturized]) [w makeKeyAndOrderFront:nil];',
+        from: 'if (isChromeWindow(w) && [w isMiniaturized]) [w makeKeyAndOrderFront:nil];',
         to: '/* mutation: alpha restored, miniaturize left in place */',
       },
     ],
@@ -149,7 +149,7 @@ const MUTATIONS = [
       'restores the old -9999 frame move, which drags attached sheets offscreen and is ' +
       'clamped by macOS into a transparent edge strip',
     suite: 'tests/integration/window-scope.test.js',
-    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    expect: 'hidden state defers native UI without moving browser frames or attached sheets',
     edits: [
       {
         file: 'native/window_suppress.m',
@@ -170,7 +170,7 @@ const MUTATIONS = [
     describes:
       'removes click-through hiding, leaving an invisible browser window to consume mouse input',
     suite: 'tests/integration/window-scope.test.js',
-    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    expect: 'hidden state defers native UI without moving browser frames or attached sheets',
     edits: [
       {
         file: 'native/window_suppress.m',
@@ -186,16 +186,22 @@ const MUTATIONS = [
     ],
   },
   {
-    name: 'native-panel-cannot-activate',
+    name: 'hidden-browser-can-self-activate',
     describes:
-      'keeps the hidden-session activation block armed while a native panel needs human input',
-    suite: 'tests/integration/window-scope.test.js',
-    expect: 'hidden state is click-through without moving browser frames or their native UI',
+      'removes the application-level activation gate, allowing hidden Chrome to take the ' +
+      'keyboard even while every one of its windows remains cloaked',
+    // This rule belongs to the application, not to one kind of panel. Exercise
+    // it with a real Chrome process and the event-level focus monitor: synthetic
+    // bundle-less AppKit hosts are not eligible for every foreground transition
+    // on current macOS, and a panel intercepted before presentation does not
+    // issue an activation request in the first place.
+    suite: 'tests/integration/focus.test.js',
+    expect: 'a hidden launch never takes the foreground',
     edits: [
       {
         file: 'native/window_suppress.m',
-        from: 'return isHidden() && !gHumanUIActive;',
-        to: 'return isHidden();',
+        from: 'return isHidden();',
+        to: 'return NO;',
       },
     ],
   },
@@ -205,7 +211,7 @@ const MUTATIONS = [
       'forgets that Chromium restore/download bubbles are browser-owned windows, so a hidden ' +
       'session can expose one and take focus again after a native panel closes',
     suite: 'tests/integration/window-scope.test.js',
-    expect: 'hidden state is click-through without moving browser frames or their native UI',
+    expect: 'hidden state defers native UI without moving browser frames or attached sheets',
     edits: [
       {
         file: 'native/window_suppress.m',
@@ -277,7 +283,12 @@ for (const mutation of selected) {
   // staged with a browser names its own suite instead.
   const suite = mutation.suite ?? 'tests/integration/hide-show.test.js';
   console.log(`    judged by: ${suite}`);
-  const run = spawnSync(process.execPath, ['--test', suite], {
+  // Ask Node for TAP explicitly. Node 26 changed the default reporter from TAP
+  // (`not ok N - name`) to the spec reporter (`✖ name`), which made every
+  // failing mutant look like it survived even though its test had gone red.
+  // The mutation verdict is part of the gate, so its input format must not
+  // depend on whichever reporter a future Node release chooses by default.
+  const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', suite], {
     cwd: root,
     encoding: 'utf8',
     env: process.env,
