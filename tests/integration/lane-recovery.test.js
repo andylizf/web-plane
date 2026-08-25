@@ -18,8 +18,11 @@ import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
 const home = makeTmpDir('lane-recovery');
 const runtime = join(home, '.web-plane');
 const socketDir = join(REPO_ROOT, 'tmp', `lane-recovery-socket-${process.pid}`);
-const session = `recovery-profile-${process.pid}`;
-const lane = `recovery-lane-${process.pid}`;
+// playwright-cli embeds the session name in a Unix socket path. Keep these
+// deliberately short so the test remains below macOS's sockaddr_un limit even
+// when the checkout itself has a long path.
+const session = `rp${process.pid}`;
+const lane = `rl${process.pid}`;
 const fixture = join(home, 'recovery-fixture.html');
 let firstPid = null;
 
