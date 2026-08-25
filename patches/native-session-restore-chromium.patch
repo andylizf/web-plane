@@ -1,0 +1,15 @@
+--- node_modules/playwright-core/lib/server/chromium/chromium.js
++++ node_modules/playwright-core/lib/server/chromium/chromium.js
+@@ -268,8 +268,12 @@
+     else
+       chromeArguments.push("--remote-debugging-pipe");
+-    if (isPersistent)
+-      chromeArguments.push("about:blank");
++    if (isPersistent) {
++      // WEB_PLANE_NATIVE_SESSION_RESTORE: Chrome owns startup tabs when restoring a saved session.
++      if (!options.args?.includes?.("--restore-last-session"))
++        chromeArguments.push("about:blank");
++    }
+     else
+       chromeArguments.push("--no-startup-window");
+     return chromeArguments;

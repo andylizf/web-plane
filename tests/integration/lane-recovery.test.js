@@ -115,6 +115,17 @@ test('a killed browser restores natively, rebinds once, and does not replay the 
   assert.ok(state.port > 0);
   assert.equal(statSync(statePath).mode & 0o777, 0o600);
 
+  const targets = await fetch(`http://127.0.0.1:${state.port}/json/list`).then((response) => {
+    assert.equal(response.ok, true, `CDP target list returned HTTP ${response.status}`);
+    return response.json();
+  });
+  const pageUrls = targets.filter((target) => target.type === 'page').map((target) => target.url);
+  assert.equal(
+    pageUrls.includes('about:blank'),
+    false,
+    `native restore left Playwright's synthetic startup tab behind: ${pageUrls.join(', ')}`
+  );
+
   const backupRoot = join(runtime, 'backups', 'chrome-sessions', encodeURIComponent(session));
   assert.ok(
     readdirSync(backupRoot).some((name) => name.startsWith('backup-')),
