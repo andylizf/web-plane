@@ -154,13 +154,23 @@ export async function launchClone({ paths, session, port }) {
 
   let stderr = '';
   proc.stderr.on('data', (d) => (stderr += d));
-  proc.on('exit', (code) => {
+  let resolveEarlyExit;
+  const earlyExit = new Promise((resolve) => (resolveEarlyExit = resolve));
+  proc.on('exit', (code, signal) => {
+    resolveEarlyExit({ code, signal });
     if (code !== 0 && code !== null) {
       process.stderr.write(`\n[launchClone] Chrome exited ${code}:\n${stderr.slice(-2000)}\n`);
     }
   });
 
-  const version = await waitForCdp(cdpPort);
+  const version = await Promise.race([
+    waitForCdp(cdpPort),
+    earlyExit.then(({ code, signal }) => {
+      throw new Error(
+        `Chrome exited before CDP opened (${code ?? signal ?? 'unknown'}):\n${stderr.slice(-4000)}`
+      );
+    }),
+  ]);
   return {
     proc,
     pid: proc.pid,
