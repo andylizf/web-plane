@@ -183,6 +183,13 @@ async function inspectState(port, origin) {
   const first = targets.find((target) => target.url === `${origin}/page-a`);
   let page = null;
   if (first) {
+    const connection = await CdpConnection.connect(port);
+    try {
+      await connection.send('Target.activateTarget', { targetId: first.id });
+    } finally {
+      connection.close();
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1000));
     page = await evaluate(port, first.id, `(() => ({
       ready: document.readyState,
       inputLength: document.querySelector('#draft')?.value?.length ?? -1,
@@ -236,11 +243,11 @@ function fixtureServer() {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.setHeader('Cache-Control', 'no-store');
     if (request.url === '/frame') {
-      response.end('<!doctype html><title>Frame</title><input id="frame-draft" autocomplete="off">');
+      response.end('<!doctype html><title>Frame</title><input id="frame-draft">');
       return;
     }
     if (request.url === '/page-a') {
-      response.end(`<!doctype html><title>Restore A</title><input id="draft" autocomplete="off"><iframe src="/frame"></iframe>${filler}`);
+      response.end(`<!doctype html><title>Restore A</title><input id="draft"><iframe src="/frame"></iframe>${filler}`);
       return;
     }
     if (request.url === '/page-b') {
@@ -278,16 +285,25 @@ async function seedSession(profileDir, origin, label) {
     if (!target) await new Promise((resolveWait) => setTimeout(resolveWait, 100));
   }
   if (!target) throw new Error('seed page did not load');
-  await evaluate(instance.port, target.id, `(() => {
-    const input = document.querySelector('#draft');
-    input.value = 'RESTORE_SENTINEL';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    const frameInput = document.querySelector('iframe').contentDocument.querySelector('#frame-draft');
-    frameInput.value = 'FRAME_SENTINEL';
-    frameInput.dispatchEvent(new Event('input', { bubbles: true }));
-    scrollTo(0, 1200);
-    return true;
-  })()`);
+  const inputConnection = await CdpConnection.connect(instance.port);
+  try {
+    const sessionId = await inputConnection.attachTarget(target.id);
+    await inputConnection.send('Runtime.enable', {}, sessionId);
+    await inputConnection.send('Runtime.evaluate', {
+      expression: `document.querySelector('#draft').focus()`,
+    }, sessionId);
+    await inputConnection.send('Input.insertText', { text: 'RESTORE_SENTINEL' }, sessionId);
+    await inputConnection.send('Runtime.evaluate', {
+      expression: `document.querySelector('iframe').contentDocument.querySelector('#frame-draft').focus()`,
+    }, sessionId);
+    await inputConnection.send('Input.insertText', { text: 'FRAME_SENTINEL' }, sessionId);
+    await inputConnection.send('Runtime.evaluate', {
+      expression: 'scrollTo(0, 1200)',
+    }, sessionId);
+    await inputConnection.send('Target.activateTarget', { targetId: target.id });
+  } finally {
+    inputConnection.close();
+  }
   await new Promise((resolveWait) => setTimeout(resolveWait, 5000));
   record({ type: 'seed-state', state: await inspectState(instance.port, origin) });
   return instance;
