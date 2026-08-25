@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseInvocation, parseSessionFlag, parseLaneFlag, stripSessionFlag } from '../lib/args.js';
+import { laneHelp, nearestCommand, PROXY_COMMANDS } from '../lib/lane-commands.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -50,6 +51,14 @@ if (
   )
 ) {
   console.log(pkg.version);
+  process.exit(0);
+}
+
+if (
+  command === 'lane' &&
+  commandArgs.some((arg) => arg === '--help' || arg === '-h')
+) {
+  console.log(laneHelp(pkg.version));
   process.exit(0);
 }
 
@@ -223,6 +232,14 @@ if (command === 'install') {
     `web-plane: '${command}' is not a web-plane command — it would proxy to playwright-cli, which\n` +
       `  ${why}.\n` +
       `  Use: ${instead}`
+  );
+  process.exit(2);
+} else if (!PROXY_COMMANDS.has(command)) {
+  const suggestion = nearestCommand(command, new Set([...CUSTOM_COMMANDS, ...PROXY_COMMANDS]));
+  console.error(
+    `web-plane: unknown command '${command}'.` +
+      (suggestion ? ` Did you mean '${suggestion}'?` : '') +
+      `\nRun 'web-plane --help' for the command list.`
   );
   process.exit(2);
 } else {

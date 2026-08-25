@@ -40,6 +40,22 @@ test('--help lists the commands that exist', () => {
   }
 });
 
+test('lane help describes lane commands without requiring an attached lane', () => {
+  const r = runCli(['lane', 'example', '--help'], { home });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /Lane input:/);
+  assert.match(r.stdout, /netlog --failed/);
+  assert.doesNotMatch(r.stdout, /One-time setup/);
+});
+
+test('unknown top-level commands fail and suggest the nearest real command', () => {
+  const r = runCli(['tabs'], { home });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /unknown command 'tabs'/);
+  assert.match(r.stderr, /Did you mean 'tab-list'/);
+  assert.equal(r.stdout, '');
+});
+
 test('the agent-browser proxy uses the packaged dependency instead of PATH', () => {
   const bin = join(home, 'old-agent-browser');
   const fake = join(bin, 'agent-browser');
