@@ -10,7 +10,14 @@ process.env.HOME = HOME;
 process.on('exit', () => removeTmpDir(HOME));
 
 const { paths } = await import('../../lib/config.js');
-const { isAuthCookie, looksLikeSessionCookie, listProfiles, profiles } = await import('../../lib/profiles.js');
+const {
+  annotateLoginHosts,
+  isAuthCookie,
+  looksLikeSessionCookie,
+  listProfiles,
+  profiles,
+  profileAccountEmails,
+} = await import('../../lib/profiles.js');
 
 /** Far enough out that the row is unexpired, in Chrome's 1601 microsecond epoch. */
 const FUTURE = (Date.now() + 11644473600000 + 86400000) * 1000;
@@ -190,4 +197,37 @@ test('a name match outranks a shape match in the listing', () => {
   const mixed = listProfiles().find((p) => p.name === 'mixed');
   assert.equal(mixed.logins[0], 'zzz-university.edu');
   assert.deepEqual(mixed.logins.slice(1).sort(), ['1rx.io', '360yield.com']);
+});
+
+test('Google login evidence names recorded identities without reading credentials', () => {
+  const dir = makeProfile('google-identities', [
+    ['accounts.google.com', 'SID'],
+    ['docs.google.com', 'SID'],
+  ]);
+  writeFileSync(
+    join(dir, 'Default', 'Preferences'),
+    JSON.stringify({
+      account_info: [
+        { email: 'personal@example.com', full_name: 'Personal' },
+        { email: 'work@example.edu', gaia: '12345' },
+        { email: 'personal@example.com' },
+      ],
+    })
+  );
+
+  assert.deepEqual(profileAccountEmails(dir), ['personal@example.com', 'work@example.edu']);
+  assert.deepEqual(
+    annotateLoginHosts(['accounts.google.com', 'docs.google.com'], profileAccountEmails(dir)),
+    [
+      'accounts.google.com (personal@example.com, +1 more)',
+      'docs.google.com (personal@example.com, +1 more)',
+    ]
+  );
+});
+
+test('known multi-account hosts say identity unknown when Chrome records none', () => {
+  assert.deepEqual(
+    annotateLoginHosts(['accounts.google.com', 'example.com'], []),
+    ['accounts.google.com (multi-account: identity unknown)', 'example.com']
+  );
 });
