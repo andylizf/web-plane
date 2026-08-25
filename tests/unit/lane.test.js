@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MIN_AGENT_BROWSER } from '../../lib/config.js';
-import { activeTargetId } from '../../lib/cdp.js';
+import { activeTargetId, parseAgentBrowserPageErrors } from '../../lib/cdp.js';
 import { runCli } from '../helpers/cli.js';
 import { makeTmpDir, removeTmpDir } from '../helpers/tmpdir.js';
 
@@ -24,6 +24,28 @@ test('reads only the active stable target id from agent-browser JSON', () => {
   assert.equal(activeTargetId(listing), 'TARGET-B');
   assert.equal(activeTargetId('{not-json'), null);
   assert.equal(activeTargetId(JSON.stringify({ success: true, data: { tabs: [] } })), null);
+});
+
+test('reads the persistent page-error buffer from agent-browser JSON', () => {
+  const errors = parseAgentBrowserPageErrors(JSON.stringify({
+    success: true,
+    data: {
+      errors: [
+        { text: 'Error: detached rejection', url: null, line: 0, column: 12 },
+        { text: 'Error: delayed throw', url: 'about:blank', line: 1, column: 2 },
+      ],
+    },
+  }));
+
+  assert.deepEqual(errors, [
+    { text: 'Error: detached rejection', url: null, line: 0, column: 12 },
+    { text: 'Error: delayed throw', url: 'about:blank', line: 1, column: 2 },
+  ]);
+  assert.deepEqual(
+    parseAgentBrowserPageErrors(JSON.stringify({ success: true, data: { errors: [] } })),
+    []
+  );
+  assert.throws(() => parseAgentBrowserPageErrors('{"success":true}'), /no structured/);
 });
 
 test('a lane without a web-plane mapping cannot launch an unrelated browser', () => {

@@ -85,6 +85,19 @@ One lane owns one tab. Use another lane when the task needs another page.
 Lanes sharing one profile keep independent pinned targets; web-plane briefly
 serializes each command boundary because Chrome has only one selected tab.
 
+If an `eval` starts asynchronous work and returns before that work fails, read
+the lane's persistent error buffer instead of treating the later empty result as
+success:
+
+```bash
+web-plane lane task1 errors
+```
+
+`web-plane profiles` marks a user-data directory as `SPLIT` if Chrome created
+multiple inner profiles such as `Default` and `Profile 1`. When more than one
+inner profile has live pages, `show`, `cdp`, and `attach` refuse rather than
+choosing an identity. Close the extra profile window or restart the session.
+
 ## Hide / show
 
 web-plane owns window visibility; agent-browser keeps driving either way:

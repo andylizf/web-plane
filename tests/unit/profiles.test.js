@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'child_process';
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { makeTmpDir, removeTmpDir } from '../helpers/tmpdir.js';
 
@@ -10,7 +10,7 @@ process.env.HOME = HOME;
 process.on('exit', () => removeTmpDir(HOME));
 
 const { paths } = await import('../../lib/config.js');
-const { isAuthCookie, looksLikeSessionCookie, listProfiles } = await import('../../lib/profiles.js');
+const { isAuthCookie, looksLikeSessionCookie, listProfiles, profiles } = await import('../../lib/profiles.js');
 
 /** Far enough out that the row is unexpired, in Chrome's 1601 microsecond epoch. */
 const FUTURE = (Date.now() + 11644473600000 + 86400000) * 1000;
@@ -88,6 +88,39 @@ test('a profile with no cookie DB is listed rather than dropped', () => {
   // how a caller finds the identity to reuse instead of creating a new one.
   mkdirSync(join(paths.profilesDir, 'fresh'), { recursive: true });
   assert.ok(listProfiles().some((p) => p.name === 'fresh'));
+});
+
+test('an inner Chrome profile split is visible and login evidence stays scoped to Default', () => {
+  const dir = makeProfile('split', [['example.com', 'session']]);
+  mkdirSync(join(dir, 'Profile 1'), { recursive: true });
+  writeFileSync(
+    join(dir, 'Local State'),
+    JSON.stringify({
+      profile: {
+        info_cache: {
+          Default: { name: 'Person 1' },
+          'Profile 1': { name: 'Work' },
+        },
+      },
+    })
+  );
+
+  const split = listProfiles().find((p) => p.name === 'split');
+  assert.deepEqual(split.chromeProfiles, ['Default', 'Profile 1']);
+  assert.equal(split.profileSplit, true);
+  assert.deepEqual(split.logins, ['example.com']);
+
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (...args) => lines.push(args.join(' '));
+  try {
+    profiles();
+  } finally {
+    console.log = originalLog;
+  }
+  const output = lines.join('\n');
+  assert.match(output, /LOGGED INTO \(DEFAULT\)/);
+  assert.match(output, /SPLIT: Default, Profile 1/);
 });
 
 test('a session cookie is recognised by shape when its name is on no list', () => {

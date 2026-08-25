@@ -211,12 +211,22 @@ inspection and navigation remain available for diagnosis and recovery. Lanes
 on one profile keep independent pinned targets, while this command boundary is
 serialized because Chrome has only one selected tab.
 
+`web-plane lane <lane> errors` reads uncaught exceptions retained by the lane's
+persistent driver, including rejected promises and timer callbacks that failed
+after an earlier `eval` had already returned successfully.
+
 `web-plane -s=work ui status` reports blocking UI without displaying it. A
 browser-owned child modal such as WebAuthn is distinguished structurally from
 unparented Recover/download bubbles, without matching localized titles. The
 lane whose command exposed a tab-modal blocker is recorded, so other lanes in
 the same browser remain usable. The response lists the available choices;
 `show` is an explicit agent decision, not a side effect of detection.
+
+A managed Workspace sign-in can make Chrome create another inner profile inside
+one `-s` user-data directory. `web-plane profiles` marks this as `SPLIT`. While
+both inner profiles have live pages, `show`, `cdp`, and `attach` refuse rather
+than activating or attaching to an arbitrary identity; close the extra profile
+window or restart the session before retrying.
 
 For a manual connection, run `web-plane -s=work cdp` and use the exact
 `web-plane agent-browser --session work --pin-tab connect <port>` command it

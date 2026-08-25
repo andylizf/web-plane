@@ -23,6 +23,7 @@ web-plane -s=main attach --as work https://example.com   # start/reuse + open + 
 web-plane lane work snapshot                             # refs e1,e2… then click/fill by ref
 web-plane lane work click e3
 web-plane lane work eval "navigator.webdriver"           # => false (confirm stealth)
+web-plane lane work errors                               # detached async failures
 ```
 `-s` is the profile (login identity, one Chrome process); `--as` is your lane (one daemon +
 one labelled tab). Several agents on one identity: same `-s`, different `--as`.
@@ -30,6 +31,9 @@ one labelled tab). Several agents on one identity: same `-s`, different `--as`.
 Drive through `web-plane lane`, not `agent-browser` directly. agent-browser owns the pinned
 target; the wrapper activates it through CDP and adds web-plane's pre/post blocking-UI gate
 without invalidating snapshot refs. A lane owns one tab; need a second page, take a second lane.
+If Chrome creates another inner profile during a managed sign-in, `web-plane profiles` marks
+the session `SPLIT`; `show`, `cdp`, and `attach` refuse while both identities have live pages.
+Close the extra profile window or restart the session instead of bypassing that guard.
 
 ## Check it's actually on
 ```bash
@@ -46,8 +50,9 @@ web-plane -s=main show            # raises to the foreground (steals focus — t
 web-plane -s=main status          # session, PID, CDP port, hidden/minimized/visible
 web-plane -s=main close
 ```
-Visibility is per *profile*, not per lane — one browser, one window. Showing it shows
-whatever tab is in front, so snapshot your lane immediately before `show` for a human handoff.
+Visibility is per web-plane session, not per lane. Showing it normally shows whichever tab is
+in front; a live inner-profile split refuses instead. Snapshot your lane immediately before
+`show` for a human handoff.
 Hidden is the resting state; `show` is only for a staged human handoff — see "Visibility
 choreography" in SKILL.md. Because `show` grabs the foreground, never fire it casually;
 fire it once, when the screen is exactly the one the human must act on. `show` also

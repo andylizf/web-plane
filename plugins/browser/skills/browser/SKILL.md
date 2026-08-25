@@ -86,6 +86,12 @@ can enumerate them. **Read a missing host as "not detected", never as "logged ou
 errors do not cost the same: a false "logged out" is what sends you off to create the duplicate
 profile this whole section exists to prevent.
 
+Chrome can also create `Profile 1` *inside* one web-plane user-data directory during a managed
+Workspace sign-in. `web-plane profiles` marks that row `SPLIT` and scopes `LOGGED INTO` to
+`Default`. If multiple inner profiles have live pages, `show`, `cdp`, and `attach` refuse rather
+than choosing an identity. Close the extra profile window or restart the session; do not work
+around the guard by attaching agent-browser directly.
+
 Two more ways this goes wrong even when you know the rule above. First, `web-plane list` is
 *not* a web-plane command — it proxies to playwright-cli and prints that tool's session
 registry, which omits profiles it never opened and keeps names whose dirs are long gone. It
@@ -136,6 +142,14 @@ A lane owns exactly one tab. If you need a second page, take a second lane.
 Lanes on the same profile keep independent pinned targets; `web-plane lane`
 serializes only the target activation, command, and UI checks because Chrome has
 one selected tab.
+
+An `eval` can return successfully while a promise or timer it started fails later. When a
+multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:
+```
+web-plane lane <lane> errors
+```
+This reports uncaught exceptions from detached work; do not infer that eval state failed to
+persist merely because the later read was empty.
 
 ### Blocking UI — detect first, show only by decision
 `web-plane lane` reports blocking UI before and after page commands. If it returns

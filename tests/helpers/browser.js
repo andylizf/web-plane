@@ -172,6 +172,44 @@ export async function launchClone({ paths, session, port }) {
   };
 }
 
+/**
+ * Ask a running Chrome to open another regular profile from the same
+ * user-data-dir. The second executable only forwards the request through
+ * Chrome's ProcessSingleton and exits; the original browser owns the new
+ * window and keeps its debugging port.
+ */
+export async function openInnerProfile({ paths, session, profileDirectory }) {
+  const profileDir = join(paths.profilesDir, session);
+  const child = spawn(
+    paths.chromeBin,
+    [
+      `--user-data-dir=${profileDir}`,
+      `--profile-directory=${profileDirectory}`,
+      '--new-window',
+      '--no-first-run',
+      '--no-default-browser-check',
+      'about:blank',
+    ],
+    { stdio: ['ignore', 'ignore', 'pipe'] }
+  );
+
+  let stderr = '';
+  child.stderr.on('data', (chunk) => (stderr += chunk));
+  const exit = await Promise.race([
+    new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal }))),
+    sleep(10_000).then(() => ({ timeout: true })),
+  ]);
+  if (exit.timeout) {
+    killQuietly(child.pid);
+    throw new Error(`Chrome profile launcher did not hand off within 10s: ${stderr.slice(-2000)}`);
+  }
+  if (exit.code !== 0) {
+    throw new Error(
+      `Chrome profile launcher exited ${exit.code ?? exit.signal}: ${stderr.slice(-2000)}`
+    );
+  }
+}
+
 /** A minimal CDP client — enough to stage the states the tests need. */
 export async function cdpClient(port) {
   const { webSocketDebuggerUrl } = await (

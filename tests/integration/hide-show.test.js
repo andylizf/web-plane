@@ -1,10 +1,12 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { dirname, join } from 'path';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
 import { runCli } from '../helpers/cli.js';
 import { compositorBlindSpot, screenWindows } from '../../lib/window.js';
+import { livePageContextIds, livePageContextIdsForPort } from '../../lib/browser-contexts.js';
+import { PATCH_MARKERS, RUNTIME_VERSION } from '../../lib/config.js';
 import {
   buildProbe,
   buildRuntime,
@@ -15,6 +17,7 @@ import {
   keepDisplayAwake,
   killQuietly,
   launchClone,
+  openInnerProfile,
   probe,
   requireLiveDisplay,
   requireMacGui,
@@ -55,6 +58,12 @@ before(async () => {
   probeBin = buildProbe(home);
   await requireLiveDisplay(probeBin);
   paths = buildRuntime(home);
+  writeFileSync(join(paths.runtime, 'runtime-version'), `${RUNTIME_VERSION}\n`);
+  for (const { file, marker } of PATCH_MARKERS) {
+    const patched = join(paths.runtime, 'playwright-cli', file);
+    mkdirSync(dirname(patched), { recursive: true });
+    writeFileSync(patched, `// ${marker}\n`);
+  }
   browser = await launchClone({ paths, session: SESSION });
 });
 
@@ -349,6 +358,82 @@ test('a window opened while hidden never reaches the screen', async () => {
     { timeoutMs: 4000 }
   );
   assert.ok(ok, `a window became visible while the session was hidden:\n${describeWindows(last)}`);
+});
+
+test('show refuses a second live browser context and leaves every window hidden', async () => {
+  // Keep this test independently runnable with --test-name-pattern. In the full
+  // file an earlier test already finished the launch transition and hid Chrome.
+  if (existsSync(browser.suppressFile)) await finishLaunchTransition(browser);
+  const hidden = runCli([`-s=${SESSION}`, 'hide'], { home });
+  assert.equal(hidden.code, 0, `could not establish hidden state:\n${hidden.all}`);
+
+  // Several windows in one context are ordinary popups and were exercised just
+  // above. A second regular Chrome profile is different: Chrome exposes its
+  // page through the same debugging endpoint under another BrowserContext.
+  const originalContextIds = await livePageContextIdsForPort(browser.port);
+  assert.equal(originalContextIds.length, 1, 'the test did not start with one browser context');
+  await openInnerProfile({ paths, session: SESSION, profileDirectory: 'Profile 1' });
+
+  const setup = await cdpClient(browser.port);
+  let targetInfos = [];
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    ({ targetInfos = [] } = await setup.send('Target.getTargets', {}));
+    if (livePageContextIds(targetInfos).length === 2) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  setup.close();
+  const contextIds = livePageContextIds(targetInfos);
+  assert.equal(
+    contextIds.length,
+    2,
+    `Chrome did not expose Profile 1 as another live context: ${JSON.stringify(contextIds)}`
+  );
+  const addedContextIds = contextIds.filter((id) => !originalContextIds.includes(id));
+  assert.equal(addedContextIds.length, 1, 'the added profile context was not distinguishable');
+
+  try {
+    const shown = runCli([`-s=${SESSION}`, 'show'], { home });
+    assert.equal(shown.code, 1, `show accepted an ambiguous profile split:\n${shown.all}`);
+    assert.match(shown.stderr, /Chrome has 2 live browser contexts/);
+    assert.match(shown.stderr, /refusing to show/);
+    assert.equal(
+      existsSync(browser.hiddenFlag),
+      true,
+      'show removed the standing-hidden flag before refusing the split'
+    );
+
+    const contentWindows = (p) => p.windows.filter((w) => w.w >= 400 && w.h >= 300);
+    const { ok, last } = await waitFor(
+      look,
+      (p) => contentWindows(p).length >= 2 &&
+        contentWindows(p).every((w) => w.alpha === 0 || !w.inOnScreenList),
+      { timeoutMs: 4000 }
+    );
+    assert.ok(ok, `show exposed a window before it refused:\n${describeWindows(last)}`);
+
+    const exposed = runCli([`-s=${SESSION}`, 'cdp'], { home });
+    assert.equal(exposed.code, 1, `cdp exposed an ambiguous browser endpoint:\n${exposed.all}`);
+    assert.match(exposed.stderr, /refusing to attach to/);
+    assert.match(exposed.stderr, /Chrome has 2 live browser contexts/);
+    assert.doesNotMatch(exposed.stdout, /CDP port:/);
+  } finally {
+    const cleanup = await cdpClient(browser.port);
+    const latest = await cleanup.send('Target.getTargets', {});
+    for (const target of latest.targetInfos ?? []) {
+      if (target.type === 'page' && addedContextIds.includes(target.browserContextId)) {
+        await cleanup.send('Target.closeTarget', { targetId: target.targetId });
+      }
+    }
+    cleanup.close();
+  }
+
+  // Refusal is conditional, not a poisoned session. Once the extra context is
+  // gone the same hidden browser must be showable and hideable again.
+  const recovered = runCli([`-s=${SESSION}`, 'show'], { home });
+  assert.equal(recovered.code, 0, `show did not recover after the split closed:\n${recovered.all}`);
+  assert.match(recovered.stdout, /Window shown/);
+  assert.equal(runCli([`-s=${SESSION}`, 'hide'], { home }).code, 0);
 });
 
 test("close stops the browser and removes this run's hidden flag", async () => {

@@ -218,6 +218,29 @@ try {
   assert.equal(existsSync(staleLock), false, 'dead owner left the profile permanently locked');
   record('stale-profile-lock-recovery', 'success');
 
+  // An eval can return successfully while work it started fails later. The
+  // lane's persistent agent-browser daemon must retain both failure shapes,
+  // and web-plane's ordinary (non-JSON) command must render their text.
+  const detachedRejection = 'web-plane detached rejection marker';
+  const delayedThrow = 'web-plane delayed throw marker';
+  await cli([
+    'lane', lane, 'eval',
+    `(() => { Promise.reject(new Error(${JSON.stringify(detachedRejection)})); return 'detached-started'; })()`,
+  ], { expect: 0 });
+  await cli([
+    'lane', lane, 'eval',
+    `(() => { setTimeout(() => { throw new Error(${JSON.stringify(delayedThrow)}); }, 0); return 'timer-started'; })()`,
+  ], { expect: 0 });
+  await cli(['lane', lane, 'wait', '100'], { expect: 0 });
+  const pageErrors = await cli(['lane', lane, 'errors'], { expect: 0 });
+  assert.match(pageErrors.stdout, new RegExp(detachedRejection));
+  assert.match(pageErrors.stdout, new RegExp(delayedThrow));
+  record('detached-page-errors', 'success', {
+    detachedRejection,
+    delayedThrow,
+    output: pageErrors.stdout,
+  });
+
   // Chrome has only one selected tab. The target activation and UI gates must
   // therefore be serialized across lanes that share a profile, even though
   // agent-browser keeps their pinned target state independently.
