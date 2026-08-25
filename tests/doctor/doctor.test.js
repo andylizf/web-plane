@@ -60,9 +60,9 @@ test('the old generic patch marker does not pass as the run-id protocol', () => 
 });
 
 test('a runtime built for another protocol is rejected', () => {
-  const r = doctorOn('old-runtime', { runtimeVersion: '5' });
+  const r = doctorOn('old-runtime', { runtimeVersion: '6' });
   assert.equal(r.code, 1);
-  assert.match(r.stdout, /installed protocol 5 != package protocol 6/);
+  assert.match(r.stdout, /installed protocol 6 != package protocol 7/);
   assert.match(r.stdout, /fix: web-plane install/);
 });
 
