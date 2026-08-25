@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {
   isCoveredClickFailure,
   laneHelp,
+  parseSemanticFind,
+  resolveSnapshotRole,
   translateLaneCommand,
 } from '../../lib/lane-commands.js';
 
@@ -76,6 +78,49 @@ test('covered click failures are recognized narrowly', () => {
     true
   );
   assert.equal(isCoveredClickFailure('Unknown ref: e1'), false);
+});
+
+test('force click, all-frame eval, and key commands stay explicit at the lane boundary', () => {
+  assert.deepEqual(translateLaneCommand(['click', 'e3', '--force']), {
+    args: ['click', 'e3'],
+    operation: 'force-click',
+    wait: null,
+  });
+  assert.deepEqual(translateLaneCommand(['eval', '--all-frames', 'document.title']), {
+    args: ['eval', 'document.title'],
+    operation: 'eval-all-frames',
+    wait: null,
+  });
+  assert.deepEqual(translateLaneCommand(['key', 'Meta+a']), {
+    args: ['press', 'Meta+a'],
+    operation: 'key',
+    wait: null,
+  });
+  assert.throws(() => translateLaneCommand(['click', 'e3', '--force', '--force']), /once/);
+});
+
+test('semantic role lookup resolves a fresh iframe-visible snapshot ref', () => {
+  const plan = parseSemanticFind([
+    'find', 'role', 'textbox', 'fill', 'TX', '--name', 'State', '--exact',
+  ]);
+  assert.deepEqual(plan, {
+    role: 'textbox', name: 'State', exact: true, action: 'fill', text: 'TX',
+  });
+  assert.deepEqual(
+    resolveSnapshotRole(
+      '- iframe "Nested form"\n  - textbox "State" [required, ref=e62]',
+      plan
+    ),
+    { ref: 'e62', role: 'textbox', name: 'State' }
+  );
+  assert.equal(
+    resolveSnapshotRole('- textbox "Statement" [ref=e2]', plan),
+    null,
+  );
+  assert.equal(
+    translateLaneCommand(['find', 'role', 'button', '--name', 'Save']).operation,
+    'semantic-find'
+  );
 });
 
 test('lane help exposes the safe and diagnostic paths hidden by top-level help', () => {

@@ -184,7 +184,7 @@ if (command === 'install') {
 } else if (command === 'attach') {
   const { attach } = await import('../lib/cdp.js');
   const { lane, rest } = parseLaneFlag(commandArgs);
-  await attach(parseSessionFlag(rawArgs), rest[0], lane);
+  await attach(parseSessionFlag(rawArgs), rest, lane);
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
   await windowControl(command, parseSessionFlag(rawArgs));

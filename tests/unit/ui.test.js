@@ -31,7 +31,7 @@ test('blocker policy makes showing UI an agent choice', () => {
 });
 
 test('unknown agent-browser commands fail closed while inspection and recovery stay available', () => {
-  for (const command of ['snapshot', 'screenshot', 'eval', 'goto', 'reload', 'tab']) {
+  for (const command of ['snapshot', 'screenshot', 'eval', 'goto', 'navigate', 'reload', 'tab']) {
     assert.equal(laneCommandNeedsClearUI([command]), false, command);
   }
   for (const command of ['click', 'fill', 'type', 'press', 'hover', 'future-input-command']) {
