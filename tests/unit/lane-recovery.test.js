@@ -32,16 +32,17 @@ test('title disambiguates restored tabs with the same URL', () => {
   assert.equal(result.target.id, 'B');
 });
 
-test('stored index only disambiguates candidates that already match the URL', () => {
+test('stored index never guesses between indistinguishable restored tabs', () => {
   const duplicate = [
     { id: 'A', title: 'Same', url: 'https://portal.example/form' },
     { id: 'B', title: 'Same', url: 'https://portal.example/form' },
   ];
-  assert.equal(resolveRestoredTarget({
+  const sameUrl = resolveRestoredTarget({
     url: 'https://portal.example/form',
     title: 'Same',
     tabIndex: 1,
-  }, duplicate).target.id, 'B');
+  }, duplicate);
+  assert.equal(sameUrl.status, 'ambiguous');
 
   const wrongUrl = resolveRestoredTarget({
     url: 'https://portal.example/missing',

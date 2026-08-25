@@ -93,8 +93,8 @@ the restored target list:
 
 1. Prefer one exact URL and title match.
 2. If title is unavailable, accept one exact URL match.
-3. Use the stored tab index only to disambiguate candidates that already match
-   the URL; never use index alone.
+3. Treat two targets with the same URL and title as ambiguous; CDP target-list
+   order is not a documented tab identity and must not be used to guess.
 4. If zero or multiple candidates remain, report the sanitized candidate list
    and require a new explicit attach.
 
