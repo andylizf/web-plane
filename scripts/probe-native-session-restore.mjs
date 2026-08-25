@@ -129,7 +129,6 @@ async function launchChrome(profileDir, label, extraArgs = [], startupUrl = null
     '--no-default-browser-check',
     '--disable-background-networking',
     '--disable-component-update',
-    '--disable-session-crashed-bubble',
     '--window-size=900,700',
     ...extraArgs,
     ...(startupUrl ? [startupUrl] : []),
@@ -195,14 +194,16 @@ async function inspectState(port, origin) {
   return { targets: safeTargets, page };
 }
 
-async function closeChrome(instance, label, graceful = true) {
+async function closeChrome(instance, label, mode = 'cdp') {
   if (!instance || instance.child.exitCode !== null) return;
-  if (graceful) {
+  if (mode === 'cdp') {
     try {
       const connection = await CdpConnection.connect(instance.port);
       await connection.send('Browser.close');
       connection.close();
     } catch {}
+  } else if (mode === 'sigterm') {
+    try { instance.child.kill('SIGTERM'); } catch {}
   } else {
     try { instance.child.kill('SIGKILL'); } catch {}
   }
@@ -219,7 +220,7 @@ async function closeChrome(instance, label, graceful = true) {
       execFileSync('pkill', ['-f', `--user-data-dir=${profileDir}`], { stdio: 'ignore' });
     } catch {}
   }
-  record({ type: 'launch-stopped', label, graceful, exitCode: instance.child.exitCode, signal: instance.child.signalCode });
+  record({ type: 'launch-stopped', label, mode, exitCode: instance.child.exitCode, signal: instance.child.signalCode });
 }
 
 function cloneProfile(source, destination) {
@@ -260,9 +261,9 @@ async function listen(server) {
   return server.address().port;
 }
 
-async function seedSession(profileDir, origin) {
+async function seedSession(profileDir, origin, label) {
   normalizePreferences(profileDir);
-  const instance = await launchChrome(profileDir, 'seed', [], `${origin}/page-a`);
+  const instance = await launchChrome(profileDir, label, ['--disable-session-crashed-bubble'], `${origin}/page-a`);
   instance.profileDir = profileDir;
   const connection = await CdpConnection.connect(instance.port);
   try {
@@ -292,14 +293,25 @@ async function seedSession(profileDir, origin) {
   return instance;
 }
 
-async function runVariant({ name, crashedProfile, origin, clean, restoreSwitch, startupUrl }) {
+async function runVariant({
+  name,
+  crashedProfile,
+  origin,
+  clean,
+  restoreSwitch,
+  disableCrashBubble,
+  startupUrl,
+}) {
   const profileDir = join(profilesDir, name);
   cloneProfile(crashedProfile, profileDir);
   if (clean) normalizePreferences(profileDir, { restore: true, clean: true });
   const instance = await launchChrome(
     profileDir,
     name,
-    restoreSwitch ? ['--restore-last-session'] : [],
+    [
+      ...(restoreSwitch ? ['--restore-last-session'] : []),
+      ...(disableCrashBubble ? ['--disable-session-crashed-bubble'] : []),
+    ],
     startupUrl ? `${origin}/blank-start` : null
   );
   instance.profileDir = profileDir;
@@ -310,6 +322,7 @@ async function runVariant({ name, crashedProfile, origin, clean, restoreSwitch, 
       name,
       clean,
       restoreSwitch,
+      disableCrashBubble,
       explicitStartupUrl: Boolean(startupUrl),
       restoredA: state.targets.some((target) => target.url === `${origin}/page-a`),
       restoredB: state.targets.some((target) => target.url === `${origin}/page-b`),
@@ -320,7 +333,7 @@ async function runVariant({ name, crashedProfile, origin, clean, restoreSwitch, 
     record({ type: 'variant-result', ...result });
     return result;
   } finally {
-    await closeChrome(instance, name, true);
+    await closeChrome(instance, name, 'cdp');
   }
 }
 
@@ -332,31 +345,65 @@ try {
   const chromeVersion = execFileSync(chromePath, ['--version'], { encoding: 'utf8' }).trim();
   record({ type: 'probe-start', chromeVersion, outputDir, origin: sanitizedUrl(origin) });
 
-  const seedProfile = join(profilesDir, 'seed-profile');
-  active = await seedSession(seedProfile, origin);
-  await closeChrome(active, 'seed-clean-close', true);
+  // Preserve the real crash state before any restore attempt mutates it. The
+  // first version of this probe relaunched the seed and then cloned that newer
+  // New Tab session, so every crash variant started from the wrong baseline.
+  const crashSeedProfile = join(profilesDir, 'crash-seed-profile');
+  active = await seedSession(crashSeedProfile, origin, 'crash-seed');
+  await closeChrome(active, 'crash-seed', 'sigkill');
   active = null;
+  copyPreferences(crashSeedProfile, 'crash-seed-after-kill');
+  const crashedProfile = join(profilesDir, 'crashed-baseline');
+  cloneProfile(crashSeedProfile, crashedProfile);
+  copyPreferences(crashedProfile, 'crashed-baseline');
 
-  const clean = await launchChrome(seedProfile, 'clean-restore');
-  clean.profileDir = seedProfile;
+  // Keep the clean-exit observation separate. Browser.close is intentionally
+  // measured because web-plane must not mistake its semantics for a crash.
+  const cleanSeedProfile = join(profilesDir, 'clean-seed-profile');
+  active = await seedSession(cleanSeedProfile, origin, 'clean-seed');
+  await closeChrome(active, 'clean-seed-cdp-close', 'cdp');
+  active = null;
+  const clean = await launchChrome(cleanSeedProfile, 'clean-restore', ['--disable-session-crashed-bubble']);
+  clean.profileDir = cleanSeedProfile;
   active = clean;
   await new Promise((resolveWait) => setTimeout(resolveWait, 2500));
   const cleanState = await inspectState(clean.port, origin);
   writeJsonAtomic(join(outputDir, 'clean-restore.result.json'), cleanState);
   record({ type: 'clean-restore-result', state: cleanState });
 
-  await closeChrome(clean, 'crash-baseline', false);
+  await closeChrome(clean, 'clean-restore', 'cdp');
   active = null;
-  const crashedProfile = join(profilesDir, 'crashed-baseline');
-  cloneProfile(seedProfile, crashedProfile);
-  copyPreferences(crashedProfile, 'crashed-baseline');
 
   const variants = [];
   for (const config of [
-    { name: 'settings-only', clean: false, restoreSwitch: false, startupUrl: false },
-    { name: 'normalized', clean: true, restoreSwitch: false, startupUrl: false },
-    { name: 'restore-switch', clean: false, restoreSwitch: true, startupUrl: false },
-    { name: 'normalized-switch-explicit', clean: true, restoreSwitch: true, startupUrl: true },
+    {
+      name: 'settings-only-bubble', clean: false, restoreSwitch: false,
+      disableCrashBubble: false, startupUrl: false,
+    },
+    {
+      name: 'settings-only-no-bubble', clean: false, restoreSwitch: false,
+      disableCrashBubble: true, startupUrl: false,
+    },
+    {
+      name: 'restore-switch-bubble', clean: false, restoreSwitch: true,
+      disableCrashBubble: false, startupUrl: false,
+    },
+    {
+      name: 'restore-switch-no-bubble', clean: false, restoreSwitch: true,
+      disableCrashBubble: true, startupUrl: false,
+    },
+    {
+      name: 'normalized-settings', clean: true, restoreSwitch: false,
+      disableCrashBubble: true, startupUrl: false,
+    },
+    {
+      name: 'normalized-switch', clean: true, restoreSwitch: true,
+      disableCrashBubble: true, startupUrl: false,
+    },
+    {
+      name: 'normalized-switch-explicit', clean: true, restoreSwitch: true,
+      disableCrashBubble: true, startupUrl: true,
+    },
   ]) {
     variants.push(await runVariant({ ...config, crashedProfile, origin }));
   }
@@ -380,6 +427,6 @@ try {
   record({ type: 'probe-failed', message: error.stack ?? error.message });
   process.exitCode = 1;
 } finally {
-  if (active) await closeChrome(active, 'final-cleanup', false);
+  if (active) await closeChrome(active, 'final-cleanup', 'sigkill');
   await new Promise((resolveClose) => server.close(resolveClose));
 }
