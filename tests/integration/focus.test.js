@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'child_process';
-import { readFileSync, existsSync, openSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, openSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
 import { runCli } from '../helpers/cli.js';
@@ -49,6 +49,9 @@ let home;
 let paths;
 let probeBin;
 let focusmonBin;
+let focusHostApp;
+let focusHost;
+let focusMonitor;
 let browser;
 let releaseDisplay;
 
@@ -62,6 +65,32 @@ function buildFocusmon(dir) {
     join(REPO_ROOT, 'tests', 'native', 'focusmon.m'),
   ]);
   return out;
+}
+
+function buildFocusHost(dir) {
+  const app = join(dir, 'FocusHost.app');
+  const macos = join(app, 'Contents', 'MacOS');
+  mkdirSync(macos, { recursive: true });
+  writeFileSync(
+    join(app, 'Contents', 'Info.plist'),
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" ' +
+      '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n' +
+      '<plist version="1.0"><dict>' +
+      '<key>CFBundleIdentifier</key><string>dev.web-plane.FocusHost</string>' +
+      '<key>CFBundleExecutable</key><string>FocusHost</string>' +
+      '<key>CFBundlePackageType</key><string>APPL</string>' +
+      '<key>LSBackgroundOnly</key><false/>' +
+      '</dict></plist>\n'
+  );
+  execFileSync('cc', [
+    '-Wall', '-Werror',
+    '-framework', 'AppKit',
+    '-framework', 'Foundation',
+    '-o', join(macos, 'FocusHost'),
+    join(REPO_ROOT, 'tests', 'native', 'focus_host.m'),
+  ]);
+  return app;
 }
 
 /** Start the observer and wait until it has written its baseline line. */
@@ -101,18 +130,49 @@ before(async () => {
   probeBin = buildProbe(home);
   await requireLiveDisplay(probeBin);
   focusmonBin = buildFocusmon(home);
+  focusHostApp = buildFocusHost(home);
   paths = buildRuntime(home);
 });
 
 after(() => {
   if (browser?.pid) killQuietly(browser.pid);
+  if (focusHost?.pid) killQuietly(focusHost.pid);
+  if (focusMonitor?.pid) killQuietly(focusMonitor.pid);
   releaseDisplay?.();
   removeTmpDir(home);
 });
 
 test('a hidden launch never takes the foreground', async () => {
   const logPath = join(home, 'focus-launch.jsonl');
-  const mon = await startFocusmon(logPath);
+  focusMonitor = await startFocusmon(logPath);
+
+  // Establish a foreground app that can actually lose focus. loginwindow is a
+  // common baseline on unattended Macs and makes the no-activation assertion
+  // pass even when the activation gate is removed.
+  const focusHostBin = join(focusHostApp, 'Contents', 'MacOS', 'FocusHost');
+  execFileSync('/usr/bin/open', ['-n', focusHostApp]);
+  const hostStarted = await waitFor(
+    () => {
+      try {
+        return Number(execFileSync('pgrep', ['-f', focusHostBin], { encoding: 'utf8' }).trim().split('\n')[0]);
+      } catch {
+        return null;
+      }
+    },
+    (pid) => Number.isInteger(pid) && pid > 1,
+    { timeoutMs: 5000, everyMs: 50 }
+  );
+  assert.ok(hostStarted.ok, 'LaunchServices did not start the focus sentinel app');
+  focusHost = { pid: hostStarted.last };
+  const sentinel = await waitFor(
+    () => readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)),
+    (events) => events.some(
+      (event) => (event.event === 'activate' || event.event === 'poll-front') &&
+        event.pid === focusHost.pid
+    ),
+    { timeoutMs: 5000, everyMs: 50 }
+  );
+  assert.ok(sentinel.ok, 'the focus sentinel never became frontmost; focus theft cannot be tested');
 
   // The observer has to be running *before* the browser starts: the activation
   // under test happens about a second into the launch.
@@ -121,7 +181,8 @@ test('a hidden launch never takes the foreground', async () => {
   // Let the restoration pass run. It fired 1.7-3.2s in when it was firing at
   // all, so a shorter window could pass by finishing early.
   await waitFor(() => Date.now(), () => false, { timeoutMs: 5000, everyMs: 500 });
-  mon.kill();
+  focusMonitor.kill();
+  focusMonitor = null;
 
   assert.ok(
     isAlive(browser.pid),

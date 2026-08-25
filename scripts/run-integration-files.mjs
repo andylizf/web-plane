@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -39,6 +40,29 @@ mkdirSync(checkpointsDir, { recursive: true, mode: 0o700 });
 mkdirSync(inputsDir, { recursive: true, mode: 0o700 });
 const resultsPath = join(runDir, 'results.jsonl');
 
+function sourceFingerprint() {
+  const hash = createHash('sha256');
+  const skip = new Set(['.git', '.playwright-cli', 'logs', 'node_modules', 'tmp']);
+  const walk = (dir, relative = '') => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (skip.has(entry.name)) continue;
+      const path = join(dir, entry.name);
+      const rel = relative ? join(relative, entry.name) : entry.name;
+      if (entry.isDirectory()) walk(path, rel);
+      else if (entry.isFile()) {
+        hash.update(rel);
+        hash.update('\0');
+        hash.update(readFileSync(path));
+        hash.update('\0');
+      }
+    }
+  };
+  walk(repo);
+  return hash.digest('hex');
+}
+
+const fingerprint = sourceFingerprint();
+
 function git(args, fallback = '') {
   try {
     return execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
@@ -57,6 +81,7 @@ writeFileSync(
     node: process.version,
     platform: `${process.platform}-${process.arch}`,
     commit: git(['rev-parse', 'HEAD']).trim() || null,
+    sourceFingerprint: fingerprint,
     status: git(['status', '--short']),
   }, null, 2)}\n`,
   { mode: 0o600, flag: 'wx' }
@@ -78,7 +103,8 @@ function checkpointPath(file) {
 function completed(file) {
   try {
     const checkpoint = JSON.parse(readFileSync(checkpointPath(file), 'utf8'));
-    return checkpoint.file === file && checkpoint.status === 'passed';
+    return checkpoint.file === file && checkpoint.status === 'passed' &&
+      checkpoint.sourceFingerprint === fingerprint;
   } catch {
     return false;
   }
@@ -137,7 +163,13 @@ async function runFile(file) {
   if (passed) {
     writeFileSync(
       checkpointPath(file),
-      `${JSON.stringify({ file, status: 'passed', durationMs, timestamp: new Date().toISOString() })}\n`,
+      `${JSON.stringify({
+        file,
+        status: 'passed',
+        durationMs,
+        sourceFingerprint: fingerprint,
+        timestamp: new Date().toISOString(),
+      })}\n`,
       { mode: 0o600, flag: 'wx' }
     );
   }
