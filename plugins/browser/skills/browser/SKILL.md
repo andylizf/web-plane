@@ -170,9 +170,15 @@ web-plane lane <lane> netlog --failed
 This reports uncaught exceptions from detached work plus HTTP failures and CDP failure reasons.
 A detached observer writes append-only, metadata-only evidence under
 `~/.web-plane/logs/sessions/<profile>/`; it never stores headers or bodies. Page failures that
-appear after an input command are warned immediately. If Chrome dies, use the exact browser and
-lifecycle log paths in the error, then re-attach; crash state is normalized before the next
-managed launch.
+appear after an input command are warned immediately.
+
+If Chrome dies, run the next lane command normally. web-plane makes a verified backup of
+Chrome's Session/Tabs files, launches Chrome's native last-session restore, and rebinds the lane
+only when the recorded URL identifies one restored target. Recovery stops before executing the
+lane command: take a fresh snapshot, then run the intended action again. Recent field values,
+scroll position, and in-memory application state are not guaranteed after a hard crash. Follow
+the reported explicit `attach` command when restored targets are ambiguous. A restored session
+that kills Chrome again is quarantined once and followed by one clean launch.
 
 ### Blocking UI — detect first, show only by decision
 `web-plane lane` reports blocking UI before and after page commands. If it returns

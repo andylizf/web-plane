@@ -5,8 +5,9 @@
 web-plane currently treats a dead Chrome process as the end of every lane. It
 remembers only the lane's profile and CDP port, clears Chrome's saved session
 after a failed launch, and asks the caller to attach again with a URL. That
-throws away state Chrome already knows how to persist: windows, tabs,
-navigation entries, frame history, some form state, and scroll position.
+throws away state Chrome already knows how to persist: windows, tabs, and
+navigation entries. Volatile renderer state is recovered only when Chrome had
+already written it to the session file before the process loss.
 
 Chrome-native restore should own browser-page recovery. web-plane should own
 the information Chrome does not know: which named lane belonged to which tab,
@@ -77,11 +78,12 @@ and dies is a failed restore attempt; web-plane records the failure, confirms
 the backup, quarantines the active session files, and makes one clean launch.
 It does not keep retrying the poisoned restore.
 
-The exact current Chrome behavior for the startup preference, explicit launch
-URL, and restore switch is verified in an isolated mac-mini smoke before the
-implementation chooses launch arguments. The implementation follows observed
-behavior rather than assuming a Chromium branch's startup path matches the
-installed Chrome.
+Chrome 151.0.7922.138 on mac-mini restored both crashed tabs with
+`--restore-last-session`, with or without `--disable-session-crashed-bubble` and
+with or without an explicit startup URL. The last-session preference alone did
+not bypass Chrome's crash-safety path. A hard crash did not reliably retain the
+fixture's most recent input or scroll position, so recovery does not promise
+volatile page state.
 
 ## Lane rebinding
 
@@ -122,9 +124,8 @@ Unit tests cover preference merging, backup-before-quarantine, permissions,
 legacy lane-state migration, navigation updates, unique/ambiguous matching,
 and the recovery state machine.
 
-The mac-mini integration creates an isolated profile and two labelled lanes,
-loads a same-origin frame fixture, enters non-secret form text, scrolls, and
-kills Chrome. After relaunch it proves that Chrome restored the tabs and the
-observable page state, that each lane rebinds to the correct restored target,
-and that the interrupted command was not replayed. A second fixture crashes on
-restore and proves one backed-up clean fallback without a loop.
+The mac-mini integration creates an isolated runtime, profile, and lane, loads
+a local fixture, and kills Chrome. After relaunch it proves that Chrome restored
+the tab, the lane rebound to the new target and port, the interrupted command
+was not replayed, and a verified pre-launch session backup exists. Unit tests
+cover one backed-up quarantine and clean fallback without a deletion-first path.

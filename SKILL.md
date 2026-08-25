@@ -108,8 +108,16 @@ web-plane lane task1 netlog --failed
 The detached lane observer retains console errors, uncaught exceptions, HTTP
 failures, and CDP failure reasons under `~/.web-plane/logs/sessions/<profile>/`.
 Input commands warn when new failures arrive. The logs contain request metadata,
-not headers or bodies. If Chrome dies, the error prints the browser and lifecycle
-log paths; the next attach normalizes crash state before launch.
+not headers or bodies.
+
+If Chrome dies, run the next lane command normally. web-plane first backs up
+Chrome's Session/Tabs files, lets Chrome restore its saved tabs, and rebinds the
+lane only to a unique recorded-URL match. A successful recovery stops before
+executing that command: take a fresh snapshot, then run the intended action
+again. Never treat recovery as proof that a recent form value, scroll position,
+or in-memory application state survived. If matching is ambiguous, follow the
+reported explicit `attach` command. If the restored page kills Chrome again,
+web-plane quarantines the verified restore set and makes one clean launch.
 
 Use `web-plane lane task1 eval --all-frames '<expression>'` when the value may
 live inside an iframe. `key` reports the deepest focused element before sending

@@ -265,11 +265,22 @@ annotates login hosts with the email identities it can see. A known
 multi-account host with no label is marked `identity unknown`; a listed host is
 still evidence of some session, not proof that the required account is present.
 
-Before an idle managed profile launches, web-plane backs up and normalizes its
-crash state and disables Chrome autofill, password-save, and restore-session
-prompts. This prevents a previous crash or a submitted address form from
-poisoning the next unattended attach. Existing browser logs are rotated rather
-than overwritten.
+Before an idle managed profile launches, web-plane makes a verified private
+copy of Chrome's Session/Tabs files, enables Chrome's last-session startup
+setting, and launches with Chrome's own `--restore-last-session` path. If a
+browser dies, the next `web-plane lane` command restores Chrome's saved tabs and
+rebinds the lane only when its recorded URL identifies one restored target. The
+command exits after rebinding; take a fresh snapshot and run the intended action
+again. This prevents a click, form submission, or upload from being replayed.
+
+Chrome owns the recovered tab, URL, and navigation history. Recent form values,
+scroll position, and in-memory application state may not have reached Chrome's
+session file before a hard crash and are not guaranteed. If two restored tabs
+are indistinguishable, web-plane refuses to choose and requires an explicit
+`attach`. If the restored session kills Chrome again, web-plane retains its
+backup under `~/.web-plane/backups/chrome-sessions/`, quarantines the live
+restore files, and makes one clean launch instead of looping. Existing browser
+logs are rotated rather than overwritten.
 
 For a manual connection, run `web-plane -s=work cdp` and use the exact
 `web-plane agent-browser --session work --pin-tab connect <port>` command it
@@ -311,6 +322,8 @@ Runtime files live in `~/.web-plane/`:
 ├── profiles/<session>/          Persistent browser profiles
 ├── logs/install-*.log           Durable install logs
 ├── logs/sessions/<session>/     Browser, lifecycle, and lane event evidence
+├── lanes/<sha256>.json          Private lane-to-restored-tab recovery state
+├── backups/chrome-sessions/     Verified restore backups and quarantines
 ├── backups/runtime-*/           Previous generated runtime
 └── cli.config.json              Launch config
 ```

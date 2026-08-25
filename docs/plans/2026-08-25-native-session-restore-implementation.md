@@ -36,6 +36,11 @@ Kill only the isolated Chrome profile process and relaunch with each viable
 startup combination. Expected: one combination restores without displaying a
 blocking recovery bubble. Record the observed combination for Task 3.
 
+Observed on Chrome 151.0.7922.138: `--restore-last-session` restored both tabs;
+the startup preference alone did not. The crash-bubble switch did not affect
+the result. Live form and scroll changes were not reliably present after
+SIGKILL and are outside the recovery guarantee.
+
 **Step 4: Commit the probe and design evidence contract**
 
 Commit as `Probe Chrome native session restore`.
