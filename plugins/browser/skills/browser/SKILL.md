@@ -85,6 +85,10 @@ invented per application (Entra ships `ESTSAUTH`, Shibboleth `_shibsession_<hex>
 can enumerate them. **Read a missing host as "not detected", never as "logged out."** The two
 errors do not cost the same: a false "logged out" is what sends you off to create the duplicate
 profile this whole section exists to prevent.
+Presence has the mirror-image limitation: a host proves only that *some* session exists. For
+known multi-account providers, web-plane shows Chrome's recorded email labels when available
+and prints `identity unknown` otherwise. Never read a bare Google host as proof that the
+required account is present.
 
 Chrome can also create `Profile 1` *inside* one web-plane user-data directory during a managed
 Workspace sign-in. `web-plane profiles` marks that row `SPLIT` and scopes `LOGGED INTO` to
@@ -117,7 +121,9 @@ that changes each launch.
 ### Driving — always through the lane
 ```
 web-plane lane <lane> snapshot
-web-plane lane <lane> click e3
+web-plane lane <lane> type e3 "replacement"               # replaces by default
+web-plane lane <lane> find role button click --name Save  # fresh ref, iframe-aware
+web-plane lane <lane> click e4                            # center + one retry if covered
 web-plane lane <lane> get url
 ```
 `attach` gives each named agent-browser session a strict persistent CDP target binding.
@@ -126,19 +132,31 @@ Chrome-owned UI observable without reselecting it through agent-browser or inval
 from the preceding snapshot. The wrapper adds web-plane's blocking-UI checks before and after
 the page command.
 
-**Read back every write.** `type`, `click`, `select` report success for having dispatched the
-action, not for the page having changed: a `type` into a populated field may append instead of
-replace, a coordinate click can land on nothing, and a form can save silently without
-committing. All three look exactly like `✓ Done`. After any write that matters, read the value
-back — from a fresh snapshot, or better from the server if the page can be re-fetched — before
-building anything on top of it.
+**Read back every consequential write.** Lane `type` replaces existing content by default and
+reports before/after lengths without exposing values; use `--append` only when appending is
+intentional, and `clear <selector>` instead of key loops. Click/select still prove dispatch,
+not application state, and a server-side save can fail after the DOM action succeeds. Verify
+the resulting value or server state before building on it.
+
+`attach` and lane navigation wait for network idle for 15 seconds by default. Override with
+`--wait-for <load|domcontentloaded|networkidle|selector>`, `--timeout <ms>`, or `--no-wait`.
+Use lane `wait` for readiness between actions rather than hand-tuned sleeps.
+
+Refs still belong to one snapshot. For a role/name that survives re-rendering, use `find role
+<role> <action> --name <name>`; web-plane resolves it against a fresh snapshot, including
+iframe-visible elements. Use `eval --all-frames` for frame-spanning reads. `key` reports the
+deepest focused frame and element before dispatching, so a chord no longer fails invisibly.
+
+If `snapshot` reports a large canvas, stop looking for its pixels in the DOM: run `screenshot`
+and read the image. This is the normal fallback for Sheets, Figma, maps, and charting UIs.
 
 **Do not call `agent-browser` directly on a shared browser.** Version 0.34 keeps each
 session on its own pinned target, but a direct call bypasses web-plane's native UI gate.
 That can report a successful click while WebAuthn, Save/Open, or another Chrome-owned
 surface has taken the input. `lane` is the single command boundary for both protections.
 
-A lane owns exactly one tab. If you need a second page, take a second lane.
+A lane owns exactly one tab. `web-plane lane <lane> close` closes only that tab; if you need a
+second page, take a second lane.
 Lanes on the same profile keep independent pinned targets; `web-plane lane`
 serializes only the target activation, command, and UI checks because Chrome has
 one selected tab.
@@ -147,9 +165,14 @@ An `eval` can return successfully while a promise or timer it started fails late
 multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:
 ```
 web-plane lane <lane> errors
+web-plane lane <lane> netlog --failed
 ```
-This reports uncaught exceptions from detached work; do not infer that eval state failed to
-persist merely because the later read was empty.
+This reports uncaught exceptions from detached work plus HTTP failures and CDP failure reasons.
+A detached observer writes append-only, metadata-only evidence under
+`~/.web-plane/logs/sessions/<profile>/`; it never stores headers or bodies. Page failures that
+appear after an input command are warned immediately. If Chrome dies, use the exact browser and
+lifecycle log paths in the error, then re-attach; crash state is normalized before the next
+managed launch.
 
 ### Blocking UI — detect first, show only by decision
 `web-plane lane` reports blocking UI before and after page commands. If it returns

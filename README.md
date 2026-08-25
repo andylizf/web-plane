@@ -194,9 +194,14 @@ attaches over CDP and drives it — `webdriver=false` and all — without a wind
 stealing focus.
 
 ```bash
-web-plane -s=work attach --as task1 https://chatgpt.com
+web-plane -s=work attach --as task1 https://chatgpt.com  # waits for network idle
 web-plane lane task1 snapshot
-web-plane lane task1 click e3
+web-plane lane task1 type e3 "replacement"                # replace, never append
+web-plane lane task1 type e3 " suffix" --append           # append explicitly
+web-plane lane task1 find role button click --name "Save" # fresh semantic ref
+web-plane lane task1 click e4                              # centers/retries if covered
+web-plane lane task1 click e4 --force                      # deliberate trusted click
+web-plane lane task1 close                                 # this tab only
 web-plane -s=work hide            # invisible; the lane keeps driving
 ```
 
@@ -211,9 +216,36 @@ inspection and navigation remain available for diagnosis and recovery. Lanes
 on one profile keep independent pinned targets, while this command boundary is
 serialized because Chrome has only one selected tab.
 
+`attach`, `open`, `goto`, and `navigate` wait for network idle for up to 15
+seconds by default. Override that with `--wait-for load`, `--wait-for
+domcontentloaded`, `--wait-for <selector>`, `--timeout <ms>`, or `--no-wait`.
+Use `web-plane lane <lane> wait ...` for a readiness condition between actions.
+
+Lane input is intentionally safer than the upstream shorthand. `type` replaces
+the current value and reports only the before/after lengths; `--append` opts
+into keystroke append semantics, and `clear <selector>` empties a field without
+hand-written key loops. `find role ... --name ...` takes a fresh snapshot and
+resolves a fresh ref, including elements exposed from iframes. `key` reports the
+deepest focused frame/element before dispatching through CDP. For DOM work that
+must span frames, `eval --all-frames <expression>` returns one value or error per
+frame.
+
+When a large canvas owns the viewport, `snapshot` prints a hint to use
+`screenshot`; this is the fallback for Sheets, Figma, maps, charts, and other
+content absent from the accessibility tree.
+
 `web-plane lane <lane> errors` reads uncaught exceptions retained by the lane's
 persistent driver, including rejected promises and timer callbacks that failed
 after an earlier `eval` had already returned successfully.
+
+Each attached lane also has a detached CDP observer. `web-plane lane <lane>
+netlog --failed` shows HTTP failures and `Network.loadingFailed.errorText`;
+console errors, uncaught page errors, and failed requests that appear after an
+input command are warned immediately. Evidence is append-only, mode 0600, and
+keeps metadata only—never headers or request/response bodies—under
+`~/.web-plane/logs/sessions/<profile>/`. Chrome stdout/stderr and timestamped
+session lifecycle events live beside it, and browser-death errors print their
+exact paths.
 
 `web-plane -s=work ui status` reports blocking UI without displaying it. A
 browser-owned child modal such as WebAuthn is distinguished structurally from
@@ -227,6 +259,17 @@ one `-s` user-data directory. `web-plane profiles` marks this as `SPLIT`. While
 both inner profiles have live pages, `show`, `cdp`, and `attach` refuse rather
 than activating or attaching to an arbitrary identity; close the extra profile
 window or restart the session before retrying.
+
+For providers where Chrome records account labels, `web-plane profiles`
+annotates login hosts with the email identities it can see. A known
+multi-account host with no label is marked `identity unknown`; a listed host is
+still evidence of some session, not proof that the required account is present.
+
+Before an idle managed profile launches, web-plane backs up and normalizes its
+crash state and disables Chrome autofill, password-save, and restore-session
+prompts. This prevents a previous crash or a submitted address form from
+poisoning the next unattended attach. Existing browser logs are rotated rather
+than overwritten.
 
 For a manual connection, run `web-plane -s=work cdp` and use the exact
 `web-plane agent-browser --session work --pin-tab connect <port>` command it
@@ -267,6 +310,7 @@ Runtime files live in `~/.web-plane/`:
 ├── runtime-version              Shared JS/patch/dylib protocol version
 ├── profiles/<session>/          Persistent browser profiles
 ├── logs/install-*.log           Durable install logs
+├── logs/sessions/<session>/     Browser, lifecycle, and lane event evidence
 ├── backups/runtime-*/           Previous generated runtime
 └── cli.config.json              Launch config
 ```
@@ -283,8 +327,8 @@ npm run test:unit         # no display needed: session/profile resolution, lane
                           # safety, and show's verification rules fed synthetic
                           # window-server states
 npm run test:doctor       # doctor against an install broken one layer at a time
-npm run test:integration  # a real cloned Chrome: launch → hide → show → close,
-                          # judged by CoreGraphics, not by web-plane's own report
+npm run test:integration  # real cloned Chrome, one file at a time with durable
+                          # JSONL results, per-file logs, and resume checkpoints
 npm run test:mutation     # puts known bugs back and demands the suite go red
 ```
 
@@ -293,6 +337,10 @@ screen is locked macOS composites nothing, so a window that was shown correctly
 and a window that never appeared look identical. It refuses to run in that state
 rather than passing without proving anything — and rather than skipping, which
 would read as a green tick.
+
+Set `WEB_PLANE_INTEGRATION_RUN_DIR` to a project-local directory to resume a
+specific run. Successful per-file checkpoints are skipped; failed or interrupted
+files are rerun, and each attempt gets a new log instead of overwriting evidence.
 
 `test:integration` also covers focus: a hidden launch must not take the
 foreground, hiding must preserve browser coordinates while remaining

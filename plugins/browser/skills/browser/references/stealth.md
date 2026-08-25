@@ -22,15 +22,24 @@ uses its persistent strict tab binding. No second agent-browser or Chrome instal
 web-plane -s=main attach --as work https://example.com   # start/reuse + open + connect
 web-plane lane work snapshot                             # refs e1,e2… then click/fill by ref
 web-plane lane work click e3
+web-plane lane work type e4 "replacement"                 # replace; --append opts in
+web-plane lane work find role button click --name Save    # fresh semantic ref
+web-plane lane work eval --all-frames "document.title"    # one result per frame
 web-plane lane work eval "navigator.webdriver"           # => false (confirm stealth)
 web-plane lane work errors                               # detached async failures
+web-plane lane work netlog --failed                       # failed requests + CDP reason
 ```
 `-s` is the profile (login identity, one Chrome process); `--as` is your lane (one daemon +
 one labelled tab). Several agents on one identity: same `-s`, different `--as`.
+Attach and navigation wait for network idle by default; use `--wait-for`, `--timeout`, or
+`--no-wait` to change the readiness contract. `type` replaces and reports value lengths without
+printing contents; `clear` empties a field. If `snapshot` detects a large canvas, use
+`screenshot` and read the image. `key` reports which focused frame/element receives the chord.
 
 Drive through `web-plane lane`, not `agent-browser` directly. agent-browser owns the pinned
 target; the wrapper activates it through CDP and adds web-plane's pre/post blocking-UI gate
-without invalidating snapshot refs. A lane owns one tab; need a second page, take a second lane.
+without invalidating snapshot refs. `web-plane lane work close` closes only that tab; need a
+second page, take a second lane.
 If Chrome creates another inner profile during a managed sign-in, `web-plane profiles` marks
 the session `SPLIT`; `show`, `cdp`, and `attach` refuse while both identities have live pages.
 Close the extra profile window or restart the session instead of bypassing that guard.

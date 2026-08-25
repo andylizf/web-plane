@@ -68,8 +68,18 @@ over CDP instead of downloading another browser.
 
    ```bash
    web-plane lane task1 snapshot
-   web-plane lane task1 click e3
+   web-plane lane task1 type e3 "replacement"             # replaces by default
+   web-plane lane task1 type e3 " suffix" --append        # explicit append
+   web-plane lane task1 clear e3
+   web-plane lane task1 find role button click --name Save # fresh semantic ref
+   web-plane lane task1 click e4                           # auto-centers once
+   web-plane lane task1 click e4 --force                   # deliberate override
    ```
+
+   `attach` and lane navigation wait for network idle for 15 seconds by default.
+   Use `--wait-for <load|domcontentloaded|networkidle|selector>`, `--timeout
+   <ms>`, or `--no-wait` when the page needs a different contract. `type` reports
+   before/after lengths without printing field contents.
 
 3. Confirm you're stealthy (optional):
 
@@ -81,7 +91,8 @@ For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
 `web-plane agent-browser --session main --pin-tab connect <port>` command it
 prints. Do not omit either flag: they isolate the daemon and its target binding.
 
-One lane owns one tab. Use another lane when the task needs another page.
+One lane owns one tab. `web-plane lane task1 close` closes only that tab; use
+another lane when the task needs another page.
 Lanes sharing one profile keep independent pinned targets; web-plane briefly
 serializes each command boundary because Chrome has only one selected tab.
 
@@ -91,12 +102,27 @@ success:
 
 ```bash
 web-plane lane task1 errors
+web-plane lane task1 netlog --failed
 ```
+
+The detached lane observer retains console errors, uncaught exceptions, HTTP
+failures, and CDP failure reasons under `~/.web-plane/logs/sessions/<profile>/`.
+Input commands warn when new failures arrive. The logs contain request metadata,
+not headers or bodies. If Chrome dies, the error prints the browser and lifecycle
+log paths; the next attach normalizes crash state before launch.
+
+Use `web-plane lane task1 eval --all-frames '<expression>'` when the value may
+live inside an iframe. `key` reports the deepest focused element before sending
+the chord. If `snapshot` says the page appears canvas-rendered, use `screenshot`
+and read the image; the DOM/a11y tree cannot expose canvas pixels.
 
 `web-plane profiles` marks a user-data directory as `SPLIT` if Chrome created
 multiple inner profiles such as `Default` and `Profile 1`. When more than one
 inner profile has live pages, `show`, `cdp`, and `attach` refuse rather than
 choosing an identity. Close the extra profile window or restart the session.
+When Chrome records account emails, Google login hosts are annotated with those
+identities. A bare host or `identity unknown` never proves the account you need
+is present.
 
 ## Hide / show
 
