@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -16,9 +17,11 @@ const runtime = makeTmpDir('profile-runtime');
 process.env.WEB_PLANE_RUNTIME_DIR = runtime;
 const {
   appendSessionEvent,
+  backupChromeSessionState,
   ensureManagedLaunchConfig,
   prepareManagedProfile,
   prepareSessionLogs,
+  quarantineChromeSessionState,
   sessionEvidencePaths,
 } = await import(`../../lib/profile-runtime.js?test=${Date.now()}`);
 
@@ -47,6 +50,7 @@ test('launch preparation clears crash recovery and agent-hostile prompts atomica
   assert.equal(result.changed, true);
   assert.equal(state.profile.exit_type, 'Normal');
   assert.equal(state.profile.exited_cleanly, true);
+  assert.equal(state.session.restore_on_startup, 1);
   assert.equal(state.profile.custom, 7);
   assert.equal(state.autofill.profile_enabled, false);
   assert.equal(state.autofill.credit_card_enabled, false);
@@ -67,6 +71,7 @@ test('launch preparation creates safe defaults for a fresh managed profile', () 
   assert.equal(result.backup, null);
   assert.equal(state.profile.exit_type, 'Normal');
   assert.equal(state.profile.exited_cleanly, true);
+  assert.equal(state.session.restore_on_startup, 1);
   assert.equal(state.autofill.profile_enabled, false);
   assert.equal(state.credentials_enable_service, false);
 });
@@ -91,11 +96,58 @@ test('managed launch config preserves custom settings and adds required Chrome f
     '--start-minimized',
     '--disable-session-crashed-bubble',
     '--enable-logging',
+    '--restore-last-session',
   ]) {
     assert.equal(state.browser.launchOptions.args.filter((arg) => arg === flag).length, 1);
   }
   assert.ok(first.backup);
   assert.equal(JSON.parse(readFileSync(first.backup, 'utf8')).custom.value, 9);
+});
+
+test('backs up modern and legacy Chrome session files with verified private copies', () => {
+  const profile = makeProfile('restorable', {});
+  const sessions = join(profile.dir, 'Default', 'Sessions');
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(join(sessions, 'Session_100'), 'modern-session');
+  writeFileSync(join(sessions, 'Tabs_100'), 'modern-tabs');
+  writeFileSync(join(profile.dir, 'Default', 'Last Session'), 'legacy-session');
+
+  const backup = backupChromeSessionState('restorable');
+
+  assert.ok(backup);
+  assert.equal(readFileSync(join(backup.dir, 'Default', 'Sessions', 'Session_100'), 'utf8'), 'modern-session');
+  assert.equal(readFileSync(join(backup.dir, 'Default', 'Sessions', 'Tabs_100'), 'utf8'), 'modern-tabs');
+  assert.equal(readFileSync(join(backup.dir, 'Default', 'Last Session'), 'utf8'), 'legacy-session');
+  assert.equal(statSync(backup.dir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(backup.dir, 'manifest.json')).mode & 0o777, 0o600);
+  assert.equal(statSync(join(backup.dir, 'Default', 'Sessions', 'Session_100')).mode & 0o777, 0o600);
+  const manifest = JSON.parse(readFileSync(join(backup.dir, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.files.length, 3);
+  assert.ok(manifest.files.every((entry) => /^[a-f0-9]{64}$/.test(entry.sha256)));
+});
+
+test('quarantine moves restore data only after retaining an independent backup', () => {
+  const profile = makeProfile('poisoned', {});
+  const sessions = join(profile.dir, 'Default', 'Sessions');
+  mkdirSync(sessions, { recursive: true });
+  writeFileSync(join(sessions, 'Session_200'), 'fatal-session');
+  writeFileSync(join(profile.dir, 'Default', 'Current Tabs'), 'fatal-tabs');
+
+  const result = quarantineChromeSessionState('poisoned');
+
+  assert.ok(result.backup);
+  assert.ok(result.quarantine);
+  assert.equal(existsSync(sessions), false);
+  assert.equal(existsSync(join(profile.dir, 'Default', 'Current Tabs')), false);
+  assert.equal(
+    readFileSync(join(result.backup.dir, 'Default', 'Sessions', 'Session_200'), 'utf8'),
+    'fatal-session'
+  );
+  assert.equal(
+    readFileSync(join(result.quarantine, 'Default', 'Sessions', 'Session_200'), 'utf8'),
+    'fatal-session'
+  );
+  assert.equal(statSync(result.quarantine).mode & 0o777, 0o700);
 });
 
 test('session logs rotate without overwriting crash evidence and events are timestamped JSONL', () => {
