@@ -38,6 +38,7 @@ test('a healthy install passes', () => {
   const r = doctorOn('healthy', {});
   assert.equal(r.code, 0, `doctor should pass on a healthy install:\n${r.all}`);
   assert.match(r.stdout, /✓ playwright patch/);
+  assert.match(r.stdout, /applied \(browserType\.js \+ crBrowser\.js \+ chromium\.js\)/);
   assert.match(r.stdout, /✓ runtime protocol/);
   assert.match(r.stdout, /✓ clone signature/);
   assert.match(r.stdout, /✓ suppression dylib/);
