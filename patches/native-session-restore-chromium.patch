@@ -1,6 +1,6 @@
 --- node_modules/playwright-core/lib/server/chromium/chromium.js
 +++ node_modules/playwright-core/lib/server/chromium/chromium.js
-@@ -268,8 +268,12 @@
+@@ -268,7 +268,10 @@
      else
        chromeArguments.push("--remote-debugging-pipe");
 -    if (isPersistent)
