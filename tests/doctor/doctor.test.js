@@ -6,6 +6,7 @@ import { makeTmpDir, removeTmpDir } from '../helpers/tmpdir.js';
 import { makeRuntime, systemChromeVersion, SYSTEM_CHROME_APP } from '../helpers/fixtures.js';
 import { runCli } from '../helpers/cli.js';
 import { existsSync } from 'fs';
+import { RUNTIME_VERSION } from '../../lib/config.js';
 
 // `doctor` is the only thing standing between a degraded install and an agent
 // that thinks it is stealthy. Its failure mode is not crashing — it is printing
@@ -62,7 +63,7 @@ test('the old generic patch marker does not pass as the run-id protocol', () => 
 test('a runtime built for another protocol is rejected', () => {
   const r = doctorOn('old-runtime', { runtimeVersion: '6' });
   assert.equal(r.code, 1);
-  assert.match(r.stdout, /installed protocol 6 != package protocol 7/);
+  assert.match(r.stdout, new RegExp(`installed protocol 6 != package protocol ${RUNTIME_VERSION}`));
   assert.match(r.stdout, /fix: web-plane install/);
 });
 
@@ -76,6 +77,13 @@ test('a missing patched file is distinguished from an unpatched one', () => {
   const r = doctorOn('nofile', { crBrowserFile: false });
   assert.equal(r.code, 1);
   assert.match(r.stdout, /crBrowser\.js \(file not found\)/);
+});
+
+test('a runtime that still adds a synthetic startup tab is rejected', () => {
+  const r = doctorOn('no-native-restore-patch', { chromiumFile: false });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /chromium\.js \(file not found\)/);
+  assert.match(r.stdout, /fix: web-plane install/);
 });
 
 test('a clone Chrome that is no longer ad-hoc signed is caught', () => {

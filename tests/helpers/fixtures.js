@@ -1,7 +1,7 @@
 import { execFileSync, execSync } from 'child_process';
 import { mkdirSync, writeFileSync, rmSync, cpSync } from 'fs';
 import { join } from 'path';
-import { RUNTIME_VERSION } from '../../lib/config.js';
+import { PATCH_MARKERS, RUNTIME_VERSION } from '../../lib/config.js';
 
 /**
  * A fake `~/.web-plane` with every layer of the stealth kernel present — and a
@@ -14,8 +14,9 @@ import { RUNTIME_VERSION } from '../../lib/config.js';
  */
 
 const MARKERS = {
-  browserType: 'WEB_PLANE_RUN_ID',
-  crBrowser: 'WEB_PLANE_RUN_DIR',
+  browserType: PATCH_MARKERS.find(({ file }) => file.endsWith('/browserType.js'))?.marker,
+  crBrowser: PATCH_MARKERS.find(({ file }) => file.endsWith('/crBrowser.js'))?.marker,
+  chromium: PATCH_MARKERS.find(({ file }) => file.endsWith('/chromium.js'))?.marker,
 };
 
 export const SYSTEM_CHROME_APP = '/Applications/Google Chrome.app';
@@ -36,6 +37,7 @@ export function systemChromeVersion() {
  * @param {object} opts
  * @param {boolean|'legacy'} opts.browserTypePatch  which DYLD-injection marker to write
  * @param {boolean} opts.crBrowserFile     create the second patched file at all
+ * @param {boolean} opts.chromiumFile      create the native-session restore patch marker
  * @param {'adhoc'|'signed'|'missing'} opts.clone  how the cloned Chrome is signed
  * @param {boolean|'legacy'} opts.dylib    which suppression hook exists
  * @param {string|null} opts.cloneVersion  null = match system Chrome
@@ -45,6 +47,7 @@ export function makeRuntime(home, opts = {}) {
   const {
     browserTypePatch = true,
     crBrowserFile = true,
+    chromiumFile = true,
     clone = 'adhoc',
     dylib = true,
     cloneVersion = null,
@@ -68,6 +71,12 @@ export function makeRuntime(home, opts = {}) {
     writeFileSync(
       join(pwServer, 'chromium', 'crBrowser.js'),
       `// ${MARKERS.crBrowser}\nmodule.exports = {};\n`
+    );
+  }
+  if (chromiumFile) {
+    writeFileSync(
+      join(pwServer, 'chromium', 'chromium.js'),
+      `// ${MARKERS.chromium}\nmodule.exports = {};\n`
     );
   }
 
