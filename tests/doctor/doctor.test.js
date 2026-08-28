@@ -42,6 +42,15 @@ test('a healthy install passes', () => {
   assert.match(r.stdout, /✓ runtime protocol/);
   assert.match(r.stdout, /✓ clone signature/);
   assert.match(r.stdout, /✓ suppression dylib/);
+  assert.match(r.stdout, /✓ inner profiles\s+Default selected; no splits detected/);
+});
+
+test('a legacy inner-profile split is visible while Default remains selected', () => {
+  const r = doctorOn('profile-split', { profileSplit: true });
+  assert.equal(r.code, 0, `an explicitly selected legacy split should remain usable:\n${r.all}`);
+  assert.match(r.stdout, /⚠ inner profiles/);
+  assert.match(r.stdout, /legacy-split \(Default, Profile 1\)/);
+  assert.match(r.stdout, /Default selected/);
 });
 
 test('a reverted playwright patch is caught and named', () => {

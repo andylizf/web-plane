@@ -221,14 +221,18 @@ seconds by default. Override that with `--wait-for load`, `--wait-for
 domcontentloaded`, `--wait-for <selector>`, `--timeout <ms>`, or `--no-wait`.
 Use `web-plane lane <lane> wait ...` for a readiness condition between actions.
 
-Lane input is intentionally safer than the upstream shorthand. `type` replaces
-the current value and reports only the before/after lengths; `--append` opts
-into keystroke append semantics, and `clear <selector>` empties a field without
-hand-written key loops. `find role ... --name ...` takes a fresh snapshot and
-resolves a fresh ref, including elements exposed from iframes. `key` reports the
-deepest focused frame/element before dispatching through CDP. For DOM work that
-must span frames, `eval --all-frames <expression>` returns one value or error per
-frame.
+Lane input is intentionally safer than the upstream shorthand. After every
+successful `fill`, `type`, or `clear`, web-plane reads the same field back and
+requires an exact match. Ordinary values are printed as JSON strings; password
+values are read and compared internally but only their length is printed.
+`type` replaces by default, `--append` opts into keystroke append semantics, and
+`clear <selector>` empties a field without hand-written key loops. `snapshot`
+also reads each exposed form ref so that current values, explicit empty values,
+checked state, and selections are visible; passwords remain length-only.
+`find role ... --name ...` takes a fresh snapshot and resolves a fresh ref,
+including elements exposed from iframes. `key` reports the deepest focused
+frame/element before dispatching through CDP. For DOM work that must span
+frames, `eval --all-frames <expression>` returns one value or error per frame.
 
 When a large canvas owns the viewport, `snapshot` prints a hint to use
 `screenshot`; this is the fallback for Sheets, Figma, maps, charts, and other
@@ -255,10 +259,13 @@ the same browser remain usable. The response lists the available choices;
 `show` is an explicit agent decision, not a side effect of detection.
 
 A managed Workspace sign-in can make Chrome create another inner profile inside
-one `-s` user-data directory. `web-plane profiles` marks this as `SPLIT`. While
-both inner profiles have live pages, `show`, `cdp`, and `attach` refuse rather
-than activating or attaching to an arbitrary identity; close the extra profile
-window or restart the session before retrying.
+one `-s` user-data directory. Every managed launch explicitly selects `Default`;
+`web-plane profiles` marks the remaining on-disk split as `SPLIT`, and `doctor`
+names it. If both inner profiles are already live, `show`, `cdp`, and `attach`
+still refuse rather than activating or attaching to an arbitrary identity;
+close the extra profile window or restart the session before retrying. Browser
+launch and driver attach are bounded, so a regression exits with the stuck
+phase named instead of hanging indefinitely.
 
 For providers where Chrome records account labels, `web-plane profiles`
 annotates login hosts with the email identities it can see. A known

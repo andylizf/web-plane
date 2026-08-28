@@ -135,6 +135,9 @@ test('lane help exposes the safe and diagnostic paths hidden by top-level help',
     'errors',
     'netlog --failed',
     'eval --all-frames',
+    'current form-control state',
+    'require an exact value match',
+    'password output is length-only',
     'close',
   ]) {
     assert.match(help, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));

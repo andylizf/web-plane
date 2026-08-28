@@ -10,15 +10,19 @@ export const CLI = join(REPO_ROOT, 'bin', 'web-plane.js');
  * reads and writes under `~/.web-plane`, which is what makes it safe to run
  * against a machine that has real sessions open.
  */
-export function runCli(args, { home, env = {} } = {}) {
+export function runCli(args, { home, env = {}, timeout = null } = {}) {
   const res = spawnSync(process.execPath, [CLI, ...args], {
     encoding: 'utf8',
     env: { ...process.env, ...(home ? { HOME: home } : {}), ...env },
+    ...(timeout ? { timeout, killSignal: 'SIGTERM' } : {}),
   });
+  const timeoutMessage = res.error?.code === 'ETIMEDOUT'
+    ? `test command timed out after ${timeout}ms: web-plane ${args.join(' ')}\n`
+    : '';
   return {
-    code: res.status,
+    code: res.status ?? (timeoutMessage ? 124 : null),
     stdout: res.stdout ?? '',
-    stderr: res.stderr ?? '',
-    all: (res.stdout ?? '') + (res.stderr ?? ''),
+    stderr: (res.stderr ?? '') + timeoutMessage,
+    all: (res.stdout ?? '') + (res.stderr ?? '') + timeoutMessage,
   };
 }

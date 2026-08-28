@@ -2,12 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  annotateSnapshotFormStates,
   canvasSnapshotHint,
-  fieldChangeSummary,
+  fieldReadbackResult,
   formatFrameEvalResults,
   parseAgentBrowserBox,
-  parseAgentBrowserValueLength,
+  parseAgentBrowserValue,
   parseKeyChord,
+  snapshotFormControls,
   pickFocusedTarget,
 } from '../../lib/page-diagnostics.js';
 
@@ -55,18 +57,82 @@ test('frame eval output retains each frame result and each frame error', () => {
   assert.match(output.frames[1].error, /ReferenceError/);
 });
 
-test('field reporting exposes only lengths and replacement semantics', () => {
-  assert.equal(parseAgentBrowserValueLength('{"success":true,"data":{"value":"secret"}}'), 6);
-  assert.equal(parseAgentBrowserValueLength('{"success":false}'), null);
+test('field reads retain the complete value and prove exact write semantics', () => {
+  assert.equal(parseAgentBrowserValue('{"success":true,"data":{"value":"secret"}}'), 'secret');
+  assert.equal(parseAgentBrowserValue('{"success":true,"data":{"value":""}}'), '');
+  assert.equal(parseAgentBrowserValue('{"success":false}'), null);
   assert.deepEqual(
     parseAgentBrowserBox('{"success":true,"data":{"box":{"x":10,"y":20,"width":30,"height":40}}}'),
     { x: 10, y: 20, width: 30, height: 40 }
   );
-  assert.equal(
-    fieldChangeSummary('replace', 12, 6),
-    'replaced field content (length 12 -> 6; values hidden)'
-  );
-  assert.doesNotMatch(fieldChangeSummary('append', 6, 12), /secret/);
+
+  assert.deepEqual(fieldReadbackResult({
+    operation: 'replace', before: 'old', input: 'new', after: 'new', password: false,
+  }), {
+    ok: true,
+    expected: 'new',
+    actual: 'new',
+    message: 'verified field value "new"',
+  });
+  assert.equal(fieldReadbackResult({
+    operation: 'append', before: 'old', input: '+new', after: 'old+new', password: false,
+  }).ok, true);
+  assert.equal(fieldReadbackResult({
+    operation: 'clear', before: 'old', input: '', after: '', password: false,
+  }).message, 'verified field value ""');
+
+  const mismatch = fieldReadbackResult({
+    operation: 'replace', before: 'old', input: 'right', after: 'wrong', password: false,
+  });
+  assert.equal(mismatch.ok, false);
+  assert.match(mismatch.message, /expected "right", read "wrong"/);
+
+  const password = fieldReadbackResult({
+    operation: 'replace', before: 'old-secret', input: 'new-secret', after: 'new-secret', password: true,
+  });
+  assert.equal(password.ok, true);
+  assert.equal(password.message, 'verified password field value <10 chars>');
+  assert.doesNotMatch(password.message, /secret/);
+
+  const unreadable = fieldReadbackResult({
+    operation: 'replace', before: 'old', input: 'new', after: null, password: false,
+  });
+  assert.equal(unreadable.ok, false);
+  assert.match(unreadable.message, /could not read field value after write/);
+});
+
+test('snapshot form state uses existing refs and makes empty values explicit', () => {
+  const snapshot = [
+    '- textbox "Username" [required, ref=e1]: stale',
+    '- textbox "Password" [required, ref=e2]',
+    '- textbox "Empty" [ref=e3]',
+    '- checkbox "Remember" [checked=false, ref=e4]',
+    '- combobox "Country" [ref=e5]',
+    '- button "Save" [ref=e6]',
+  ].join('\n');
+  assert.deepEqual(snapshotFormControls(snapshot), [
+    { role: 'textbox', ref: 'e1' },
+    { role: 'textbox', ref: 'e2' },
+    { role: 'textbox', ref: 'e3' },
+    { role: 'checkbox', ref: 'e4' },
+    { role: 'combobox', ref: 'e5' },
+  ]);
+
+  const annotated = annotateSnapshotFormStates(snapshot, [
+    { ref: 'e1', kind: 'value', value: 'agent', password: false },
+    { ref: 'e2', kind: 'value', value: 'top-secret', password: true },
+    { ref: 'e3', kind: 'value', value: '', password: false },
+    { ref: 'e4', kind: 'checked', checked: true },
+    { ref: 'e5', kind: 'value', value: 'United States', password: false },
+  ]);
+  assert.match(annotated, /textbox "Username" \[required, ref=e1, value="agent"\]/);
+  assert.doesNotMatch(annotated, /: stale/);
+  assert.match(annotated, /textbox "Password" \[required, ref=e2, value=<10 chars>\]/);
+  assert.doesNotMatch(annotated, /top-secret/);
+  assert.match(annotated, /textbox "Empty" \[ref=e3, value=""\]/);
+  assert.match(annotated, /checkbox "Remember" \[checked=true, ref=e4\]/);
+  assert.match(annotated, /combobox "Country" \[ref=e5, value="United States"\]/);
+  assert.match(annotated, /button "Save" \[ref=e6\]/);
 });
 
 test('large canvas pages receive the screenshot fallback without claiming the page is empty', () => {

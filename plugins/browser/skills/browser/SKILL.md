@@ -133,10 +133,12 @@ from the preceding snapshot. The wrapper adds web-plane's blocking-UI checks bef
 the page command.
 
 **Read back every consequential write.** Lane `type` replaces existing content by default and
-reports before/after lengths without exposing values; use `--append` only when appending is
-intentional, and `clear <selector>` instead of key loops. Click/select still prove dispatch,
-not application state, and a server-side save can fail after the DOM action succeeds. Verify
-the resulting value or server state before building on it.
+immediately reads the same field and requires an exact match; ordinary values are printed,
+while password values are compared internally and reported by length only. `fill`, `--append`,
+and `clear` use the same readback rule. A snapshot enriches exposed form refs with current
+values (including explicit empty strings), checked state, and selections; password values stay
+length-only. Click/select still prove dispatch, not application state, and a server-side save
+can fail after the DOM action succeeds. Verify that resulting state before building on it.
 
 `attach` and lane navigation wait for network idle for 15 seconds by default. Override with
 `--wait-for <load|domcontentloaded|networkidle|selector>`, `--timeout <ms>`, or `--no-wait`.
@@ -179,6 +181,10 @@ lane command: take a fresh snapshot, then run the intended action again. Recent 
 scroll position, and in-memory application state are not guaranteed after a hard crash. Follow
 the reported explicit `attach` command when restored targets are ambiguous. A restored session
 that kills Chrome again is quarantined once and followed by one clean launch.
+
+Managed launches explicitly select Chrome's inner `Default` profile. `doctor` and `profiles`
+surface leftover `Default + Profile N` splits, and launch/driver attach time out with the phase
+named instead of waiting indefinitely.
 
 ### Blocking UI — detect first, show only by decision
 `web-plane lane` reports blocking UI before and after page commands. If it returns

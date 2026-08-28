@@ -97,11 +97,30 @@ test('managed launch config preserves custom settings and adds required Chrome f
     '--disable-session-crashed-bubble',
     '--enable-logging',
     '--restore-last-session',
+    '--profile-directory=Default',
   ]) {
     assert.equal(state.browser.launchOptions.args.filter((arg) => arg === flag).length, 1);
   }
   assert.ok(first.backup);
   assert.equal(JSON.parse(readFileSync(first.backup, 'utf8')).custom.value, 9);
+});
+
+test('managed launch config replaces an ambiguous inner-profile selection with Default', () => {
+  mkdirSync(runtime, { recursive: true });
+  const configPath = join(runtime, 'cli.config.json');
+  writeFileSync(configPath, JSON.stringify({
+    browser: {
+      launchOptions: {
+        args: ['--profile-directory=Profile 1', '--custom-flag'],
+      },
+    },
+  }));
+
+  ensureManagedLaunchConfig();
+  const args = JSON.parse(readFileSync(configPath, 'utf8')).browser.launchOptions.args;
+  assert.equal(args.includes('--profile-directory=Profile 1'), false);
+  assert.equal(args.filter((arg) => arg === '--profile-directory=Default').length, 1);
+  assert.equal(args.includes('--custom-flag'), true);
 });
 
 test('backs up modern and legacy Chrome session files with verified private copies', () => {

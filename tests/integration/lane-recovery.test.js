@@ -26,9 +26,10 @@ const lane = `rl${process.pid}`;
 const fixture = join(home, 'recovery-fixture.html');
 let firstPid = null;
 
-function cli(args) {
+function cli(args, timeout = 70_000) {
   return runCli(args, {
     home,
+    timeout,
     env: {
       WEB_PLANE_RUNTIME_DIR: runtime,
       AGENT_BROWSER_SOCKET_DIR: socketDir,
@@ -55,8 +56,26 @@ before(() => {
   console.log('lane-recovery: installing an isolated exact-checkout runtime');
   const installed = cli(['install']);
   assert.equal(installed.code, 0, installed.all);
+
+  // Reproduce #31: Chrome has two inner profiles and would otherwise show its
+  // profile picker or attach the driver to an arbitrary browser context.
+  const userDataDir = join(runtime, 'profiles', session);
+  mkdirSync(join(userDataDir, 'Default'), { recursive: true });
+  mkdirSync(join(userDataDir, 'Profile 1'), { recursive: true });
+  writeFileSync(join(userDataDir, 'Local State'), JSON.stringify({
+    profile: {
+      last_used: 'Default',
+      last_active_profiles: [],
+      picker_shown: true,
+      info_cache: {
+        Default: { name: 'Default' },
+        'Profile 1': { name: 'Workspace' },
+      },
+    },
+  }));
   const doctor = cli(['doctor']);
   assert.equal(doctor.code, 0, doctor.all);
+  assert.match(doctor.stdout, /rp\d+ \(Default, Profile 1\)/);
 
   console.log('lane-recovery: attaching the initial lane');
   const attached = cli([

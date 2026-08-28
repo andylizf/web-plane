@@ -42,6 +42,7 @@ export function systemChromeVersion() {
  * @param {boolean|'legacy'} opts.dylib    which suppression hook exists
  * @param {string|null} opts.cloneVersion  null = match system Chrome
  * @param {string|null} opts.runtimeVersion null = omit the version file
+ * @param {boolean} opts.profileSplit create a legacy Default + Profile 1 user-data-dir
  */
 export function makeRuntime(home, opts = {}) {
   const {
@@ -52,12 +53,29 @@ export function makeRuntime(home, opts = {}) {
     dylib = true,
     cloneVersion = null,
     runtimeVersion = RUNTIME_VERSION,
+    profileSplit = false,
   } = opts;
 
   const runtime = join(home, '.web-plane');
   const pwServer = join(runtime, 'playwright-cli', 'node_modules', 'playwright-core', 'lib', 'server');
   mkdirSync(join(pwServer, 'chromium'), { recursive: true });
   mkdirSync(join(runtime, 'profiles'), { recursive: true });
+  if (profileSplit) {
+    const profile = join(runtime, 'profiles', 'legacy-split');
+    mkdirSync(join(profile, 'Default'), { recursive: true });
+    mkdirSync(join(profile, 'Profile 1'), { recursive: true });
+    writeFileSync(join(profile, 'Local State'), JSON.stringify({
+      profile: {
+        last_used: 'Default',
+        last_active_profiles: [],
+        picker_shown: true,
+        info_cache: {
+          Default: { name: 'Default' },
+          'Profile 1': { name: 'Workspace' },
+        },
+      },
+    }));
+  }
 
   writeFileSync(
     join(pwServer, 'browserType.js'),

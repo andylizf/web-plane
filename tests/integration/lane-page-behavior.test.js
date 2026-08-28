@@ -61,6 +61,11 @@ before(async () => {
     </style>
     <button id="target">Covered action</button><div id="cover"></div>
     <canvas width="900" height="500"></canvas>
+    <label>Username <input aria-label="Username" value="agent"></label>
+    <label>Empty <input aria-label="Empty" value=""></label>
+    <label>Password <input aria-label="Password" type="password" value="old-secret"></label>
+    <label><input aria-label="Remember" type="checkbox" checked> Remember</label>
+    <label>Country <select aria-label="Country"><option>Canada</option><option selected>United States</option></select></label>
     <iframe title="Nested form" srcdoc='<label>State <input aria-label="State" value="USA"></label>'></iframe>
     <script>
       window.forceHits = [];
@@ -95,18 +100,44 @@ test('lane operations are frame-aware, focus-aware, canvas-aware, ready, and tab
   assert.equal(snapshot.code, 0, snapshot.all);
   assert.match(snapshot.stderr, /canvas-rendered/);
   assert.match(snapshot.stderr, /screenshot/);
+  assert.match(snapshot.stdout, /textbox "Username" \[[^\]]*value="agent"/);
+  assert.match(snapshot.stdout, /textbox "Empty" \[[^\]]*value=""/);
+  assert.match(snapshot.stdout, /textbox "Password" \[[^\]]*value=<10 chars>/);
+  assert.doesNotMatch(snapshot.stdout, /old-secret/);
+  assert.match(snapshot.stdout, /checkbox "Remember" \[[^\]]*checked=true/);
+  assert.match(snapshot.stdout, /combobox "Country" \[[^\]]*value="United States"/);
   assert.ok((await detectCanvasPage(chrome.port, targetId)).coverage >= 0.25);
   const ref = snapshot.stdout.match(/textbox "State"[^\n]*ref=(e\d+)/)?.[1];
   assert.ok(ref, snapshot.stdout);
 
   const replaced = cli(['lane', lane, 'type', ref, 'NY']);
   assert.equal(replaced.code, 0, replaced.all);
-  assert.match(replaced.stderr, /length 3 -> 2; values hidden/);
+  assert.match(replaced.stderr, /verified field value "NY"/);
 
   const semantic = cli(['lane', lane, 'find', 'role', 'textbox', 'fill', 'TX', '--name', 'State']);
   assert.equal(semantic.code, 0, semantic.all);
+  assert.match(semantic.stderr, /verified field value "TX"/);
+  const appended = cli(['lane', lane, 'type', ref, '!', '--append']);
+  assert.equal(appended.code, 0, appended.all);
+  assert.match(appended.stderr, /verified field value "TX!"/);
   const semanticValue = await evalAllFrames(chrome.port, targetId, 'document.querySelector("input")?.value');
-  assert.ok(semanticValue.some((frame) => frame.value === 'TX'), JSON.stringify(semanticValue));
+  assert.ok(semanticValue.some((frame) => frame.value === 'TX!'), JSON.stringify(semanticValue));
+
+  const passwordRef = snapshot.stdout.match(/textbox "Password"[^\n]*ref=(e\d+)/)?.[1];
+  assert.ok(passwordRef, snapshot.stdout);
+  const password = cli(['lane', lane, 'fill', passwordRef, 'new-secret']);
+  assert.equal(password.code, 0, password.all);
+  assert.match(password.stderr, /verified password field value <10 chars>/);
+  assert.doesNotMatch(password.all, /new-secret/);
+
+  const emptyRef = snapshot.stdout.match(/textbox "Empty"[^\n]*ref=(e\d+)/)?.[1];
+  assert.ok(emptyRef, snapshot.stdout);
+  const filledEmpty = cli(['lane', lane, 'fill', emptyRef, 'A']);
+  assert.equal(filledEmpty.code, 0, filledEmpty.all);
+  assert.match(filledEmpty.stderr, /verified field value "A"/);
+  const clearedEmpty = cli(['lane', lane, 'clear', emptyRef]);
+  assert.equal(clearedEmpty.code, 0, clearedEmpty.all);
+  assert.match(clearedEmpty.stderr, /verified field value ""/);
 
   const cdp = await CdpConnection.connect(chrome.port);
   const pageSession = await cdp.attachTarget(targetId);

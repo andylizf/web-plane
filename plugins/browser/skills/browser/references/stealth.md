@@ -32,8 +32,10 @@ web-plane lane work netlog --failed                       # failed requests + CD
 `-s` is the profile (login identity, one Chrome process); `--as` is your lane (one daemon +
 one labelled tab). Several agents on one identity: same `-s`, different `--as`.
 Attach and navigation wait for network idle by default; use `--wait-for`, `--timeout`, or
-`--no-wait` to change the readiness contract. `type` replaces and reports value lengths without
-printing contents; `clear` empties a field. If `snapshot` detects a large canvas, use
+`--no-wait` to change the readiness contract. After `fill`, `type`, or `clear`, web-plane gets
+the same field's value and requires an exact match. Ordinary values are printed; passwords are
+compared internally and reported by length only. Snapshot refs include current form values,
+explicit empty values, checked state, and selections. If `snapshot` detects a large canvas, use
 `screenshot` and read the image. `key` reports which focused frame/element receives the chord.
 
 Drive through `web-plane lane`, not `agent-browser` directly. agent-browser owns the pinned
@@ -41,8 +43,10 @@ target; the wrapper activates it through CDP and adds web-plane's pre/post block
 without invalidating snapshot refs. `web-plane lane work close` closes only that tab; need a
 second page, take a second lane.
 If Chrome creates another inner profile during a managed sign-in, `web-plane profiles` marks
-the session `SPLIT`; `show`, `cdp`, and `attach` refuse while both identities have live pages.
-Close the extra profile window or restart the session instead of bypassing that guard.
+the session `SPLIT`, and `doctor` names the on-disk profiles. Managed launches explicitly select
+`Default`; `show`, `cdp`, and `attach` still refuse while both identities have live pages. Launch
+and driver attach have bounded, phase-named failures instead of hanging indefinitely. Close the
+extra profile window or restart the session instead of bypassing that guard.
 
 ## Check it's actually on
 ```bash
