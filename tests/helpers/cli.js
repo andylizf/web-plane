@@ -2,7 +2,7 @@ import { spawnSync } from 'child_process';
 import { join } from 'path';
 import { REPO_ROOT } from './tmpdir.js';
 
-export const CLI = join(REPO_ROOT, 'bin', 'web-plane.js');
+export const CLI = process.env.WEB_PLANE_TEST_CLI ?? join(REPO_ROOT, 'bin', 'web-plane.js');
 
 /**
  * Run the CLI the way a user does — as its own process, so exit codes and the

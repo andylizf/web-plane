@@ -80,6 +80,7 @@ writeFileSync(
     files,
     node: process.version,
     platform: `${process.platform}-${process.arch}`,
+    testCli: process.env.WEB_PLANE_TEST_CLI ?? null,
     commit: git(['rev-parse', 'HEAD']).trim() || null,
     sourceFingerprint: fingerprint,
     status: git(['status', '--short']),
