@@ -126,6 +126,7 @@ Integration (drive with agent-browser):
                           using its persistent pinned target and web-plane's UI
                           gate. Use this instead of calling agent-browser
                           directly so blocking native UI cannot go unnoticed.
+                          Lifecycle: lane <lane> close|keep|unkeep; see --help.
   cdp [url]               Start/reuse a hidden session and print its CDP port
                           plus a ready pinned agent-browser connection line
 

@@ -216,6 +216,22 @@ inspection and navigation remain available for diagnosis and recovery. Lanes
 on one profile keep independent pinned targets, while this command boundary is
 serialized because Chrome has only one selected tab.
 
+The task that attaches a lane owns its lifecycle. Close the lane on every task
+exit path, including errors, before returning; closing a lane never closes its
+sibling tabs or the shared profile. Use `web-plane lane <lane> keep` only for a
+deliberate page that must outlive the task, and `unkeep` when that exception
+ends.
+
+An abandoned hidden lane becomes eligible for reclamation after 24 hours with
+no lane command. The monitor closes it only when the lane is not kept, its
+target and hidden state are verified, all frames are inspectable, and there is
+no unsubmitted input, playing media, registered `beforeunload` handler, active
+request, or active download. Every old-lane close or skip decision is appended
+to the session JSONL log. `WEB_PLANE_LANE_TTL_MS` (default `86400000`) and
+`WEB_PLANE_REAP_INTERVAL_MS` (default `3600000`) override the two intervals for
+controlled testing; automatic reclamation is a crash backstop, not a substitute
+for normal lane cleanup.
+
 `attach`, `open`, `goto`, and `navigate` wait for network idle for up to 15
 seconds by default. Override that with `--wait-for load`, `--wait-for
 domcontentloaded`, `--wait-for <selector>`, `--timeout <ms>`, or `--no-wait`.

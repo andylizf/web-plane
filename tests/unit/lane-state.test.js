@@ -18,8 +18,11 @@ process.env.WEB_PLANE_RUNTIME_DIR = runtime;
 const {
   forgetLane,
   laneStatePaths,
+  listLaneStates,
   recallLane,
   rememberLane,
+  setLaneKeep,
+  touchLaneCommand,
   updateLaneTarget,
 } = await import(`../../lib/lane-state.js?test=${Date.now()}`);
 
@@ -39,6 +42,9 @@ test('stores full recovery state in a private atomic file with a hashed name', (
   assert.equal(saved.session, 'signed-in');
   assert.equal(saved.port, 61234);
   assert.equal(saved.url, 'https://portal.example/form?token=private#address');
+  assert.match(saved.openedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(saved.lastCommandAt, saved.openedAt);
+  assert.equal(saved.keep, false);
   assert.equal(statSync(paths.dir).mode & 0o777, 0o700);
   assert.equal(statSync(paths.state).mode & 0o777, 0o600);
   assert.doesNotMatch(paths.state, /application|main/);
@@ -47,7 +53,10 @@ test('stores full recovery state in a private atomic file with a hashed name', (
 });
 
 test('merges monitor target updates without losing lane ownership', () => {
-  rememberLane('monitor', 'profile', 50000, { targetId: 'A' });
+  const original = rememberLane('monitor', 'profile', 50000, {
+    targetId: 'A',
+    lastCommandAt: '2026-08-28T12:00:00.000Z',
+  });
   const updated = updateLaneTarget('monitor', {
     targetId: 'B',
     url: 'https://example.test/next?private=yes',
@@ -61,7 +70,52 @@ test('merges monitor target updates without losing lane ownership', () => {
   assert.equal(updated.url, 'https://example.test/next?private=yes');
   assert.equal(updated.title, 'Next');
   assert.equal(updated.tabIndex, 1);
+  assert.equal(updated.lastCommandAt, original.lastCommandAt);
   assert.match(updated.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+});
+
+test('command leases and keep state are explicit and independently mutable', () => {
+  rememberLane('leased', 'profile', 50001, {
+    targetId: 'LEASED',
+    lastCommandAt: '2026-08-28T12:00:00.000Z',
+  });
+
+  const touched = touchLaneCommand('leased', '2026-08-29T01:00:00.000Z');
+  assert.equal(touched.lastCommandAt, '2026-08-29T01:00:00.000Z');
+  assert.equal(touched.keep, false);
+  assert.equal(touched.targetId, 'LEASED');
+
+  const kept = setLaneKeep('leased', true);
+  assert.equal(kept.keep, true);
+  assert.equal(kept.lastCommandAt, touched.lastCommandAt);
+
+  const released = setLaneKeep('leased', false);
+  assert.equal(released.keep, false);
+  assert.equal(released.lastCommandAt, touched.lastCommandAt);
+});
+
+test('lists only validated hashed lane records in the requested session', () => {
+  rememberLane('first', 'shared', 50002, { targetId: 'FIRST' });
+  rememberLane('second', 'shared', 50002, { targetId: 'SECOND' });
+  rememberLane('foreign', 'other', 50003, { targetId: 'FOREIGN' });
+  const paths = laneStatePaths('first');
+  writeFileSync(join(paths.dir, 'malformed.json'), '{not-json');
+  writeFileSync(join(paths.dir, 'unhashed.json'), JSON.stringify({
+    version: 1,
+    lane: 'unhashed',
+    session: 'shared',
+    port: 50002,
+  }));
+  writeFileSync(join(paths.dir, 'ignored.json.staged-123'), '{}');
+
+  assert.deepEqual(
+    listLaneStates('shared').map((state) => state.lane).sort(),
+    ['first', 'second']
+  );
+  assert.deepEqual(
+    listLaneStates().map((state) => state.lane).sort(),
+    ['application/main', 'first', 'foreign', 'leased', 'monitor', 'second']
+  );
 });
 
 test('reads and privately migrates a safe legacy session-port record', () => {

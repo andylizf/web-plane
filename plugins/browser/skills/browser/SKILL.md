@@ -157,11 +157,22 @@ session on its own pinned target, but a direct call bypasses web-plane's native 
 That can report a successful click while WebAuthn, Save/Open, or another Chrome-owned
 surface has taken the input. `lane` is the single command boundary for both protections.
 
-A lane owns exactly one tab. `web-plane lane <lane> close` closes only that tab; if you need a
-second page, take a second lane.
+A lane owns exactly one tab and belongs to the task that attached it. Unless the lane is
+explicitly kept under the exception below, arrange a finally-equivalent cleanup as soon as
+attach succeeds so `web-plane lane <lane> close` runs before the task returns on success,
+failure, cancellation, or interruption. The command closes only that tab; if you need a second
+page, take a second lane.
 Lanes on the same profile keep independent pinned targets; `web-plane lane`
 serializes only the target activation, command, and UI checks because Chrome has
 one selected tab.
+
+Use `web-plane lane <lane> keep` only when a page is deliberately meant to outlive its task, and
+name the workflow responsible for its later cleanup. Kept lanes are excluded from the 24-hour
+backstop. When the exception ends, that owner must run `web-plane lane <lane> unkeep` and then
+`web-plane lane <lane> close`; `unkeep` removes protection but does not close the page. An unkept
+lane in a hidden session, with no command through that lane for 24 hours, is eligible for
+conservative automatic reclamation only when every page safety check is known clear. That
+abnormal-exit backstop is not normal task cleanup.
 
 An `eval` can return successfully while a promise or timer it started fails later. When a
 multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:

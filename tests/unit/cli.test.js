@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
@@ -45,7 +46,49 @@ test('lane help describes lane commands without requiring an attached lane', () 
   assert.equal(r.code, 0);
   assert.match(r.stdout, /Lane input:/);
   assert.match(r.stdout, /netlog --failed/);
+  assert.match(r.stdout, /keep/);
+  assert.match(r.stdout, /24 hours/);
   assert.doesNotMatch(r.stdout, /One-time setup/);
+});
+
+test('lane keep and unkeep persist while Chrome and agent-browser are unavailable', () => {
+  const runtime = join(home, 'keep-runtime');
+  const lane = 'offline-lane';
+  const laneDir = join(runtime, 'lanes');
+  const statePath = join(
+    laneDir,
+    `${createHash('sha256').update(lane).digest('hex')}.json`
+  );
+  mkdirSync(laneDir, { recursive: true, mode: 0o700 });
+  writeFileSync(statePath, `${JSON.stringify({
+    version: 1,
+    lane,
+    session: 'offline-profile',
+    port: 54321,
+    targetId: 'gone-target',
+    openedAt: '2026-08-28T00:00:00.000Z',
+    lastCommandAt: '2026-08-28T00:00:00.000Z',
+    keep: false,
+    updatedAt: '2026-08-28T00:00:00.000Z',
+  })}\n`, { mode: 0o600 });
+
+  const kept = runCli(['lane', lane, 'keep'], {
+    home,
+    env: { WEB_PLANE_RUNTIME_DIR: runtime },
+  });
+  assert.equal(kept.code, 0, kept.all);
+  assert.match(kept.stdout, /kept from automatic reclamation/);
+  assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).keep, true);
+  assert.doesNotMatch(kept.all, /agent-browser|recovery failed|not set up/);
+
+  const unkept = runCli(['lane', lane, 'unkeep'], {
+    home,
+    env: { WEB_PLANE_RUNTIME_DIR: runtime },
+  });
+  assert.equal(unkept.code, 0, unkept.all);
+  assert.match(unkept.stdout, /automatic reclamation enabled/);
+  assert.equal(JSON.parse(readFileSync(statePath, 'utf8')).keep, false);
+  assert.doesNotMatch(unkept.all, /agent-browser|recovery failed|not set up/);
 });
 
 test('unknown top-level commands fail and suggest the nearest real command', () => {

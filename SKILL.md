@@ -91,10 +91,22 @@ For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
 `web-plane agent-browser --session main --pin-tab connect <port>` command it
 prints. Do not omit either flag: they isolate the daemon and its target binding.
 
-One lane owns one tab. `web-plane lane task1 close` closes only that tab; use
-another lane when the task needs another page.
+One lane owns one tab and belongs to the task that attached it. Unless the lane
+is explicitly kept under the exception below, arrange a finally-equivalent
+cleanup as soon as attach succeeds so `web-plane lane task1 close` runs before
+the task returns on success, error, cancellation, or interruption. It closes
+only that tab. Use another lane when the task needs another page.
 Lanes sharing one profile keep independent pinned targets; web-plane briefly
 serializes each command boundary because Chrome has only one selected tab.
+
+Reserve `web-plane lane task1 keep` for a deliberately long-lived page that
+must outlive its task, and name the workflow responsible for its later cleanup.
+A kept lane is excluded from the 24-hour backstop. When the exception ends,
+that owner must run `web-plane lane task1 unkeep` and then `web-plane lane
+task1 close`; `unkeep` removes protection but does not close the page. As an
+abnormal-exit backstop, web-plane reclaims an unkept lane after 24 hours without
+a command through that lane only when its session is hidden and every safety
+check is known clear. This backstop does not replace task cleanup.
 
 If an `eval` starts asynchronous work and returns before that work fails, read
 the lane's persistent error buffer instead of treating the later empty result as
