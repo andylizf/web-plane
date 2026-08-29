@@ -248,6 +248,34 @@ const MUTATIONS = [
       },
     ],
   },
+  {
+    name: 'browser-disconnect-leaks-monitor',
+    describes:
+      'leaves the 24-hour reaper timer alive after Chrome disconnects, orphaning the monitor ' +
+      'after its PID sidecar is removed',
+    suite: 'tests/integration/lane-recovery.test.js',
+    expect: 'a killed browser restores natively, rebinds once, and does not replay the command',
+    edits: [
+      {
+        file: 'lib/lane-monitor.js',
+        from:
+          "  connection.onClose(() => {\n" +
+          "    if (!stopping) record({ type: 'browser-disconnected', targetId });\n" +
+          '    stopping = true;\n' +
+          '    if (reapTimer) {\n' +
+          '      clearTimeout(reapTimer);\n' +
+          '      reapTimer = null;\n' +
+          '    }\n' +
+          '    resolveClosed();\n' +
+          '  });',
+        to:
+          "  connection.onClose(() => {\n" +
+          "    if (!stopping) record({ type: 'browser-disconnected', targetId });\n" +
+          '    resolveClosed();\n' +
+          '  });',
+      },
+    ],
+  },
 ];
 
 const SKIP = new Set(['.git', 'node_modules', 'tmp', 'logs', '.playwright-cli']);

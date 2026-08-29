@@ -2,6 +2,7 @@ import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -25,6 +26,7 @@ const session = `rp${process.pid}`;
 const lane = `rl${process.pid}`;
 const fixture = join(home, 'recovery-fixture.html');
 let firstPid = null;
+let firstMonitorPid = null;
 
 function cli(args, timeout = 70_000) {
   return runCli(args, {
@@ -42,6 +44,22 @@ function statusPid() {
   if (result.code !== 0) return null;
   const match = result.stdout.match(/Chrome PID:\s+(\d+)/);
   return match ? Number(match[1]) : null;
+}
+
+function monitorPids() {
+  const dir = join(runtime, 'run');
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir)
+    .filter((name) => name.startsWith('.lane-monitor-') && name.endsWith('.json'))
+    .filter((name) => !name.endsWith('.ready.json'))
+    .map((name) => JSON.parse(readFileSync(join(dir, name), 'utf8')).pid)
+    .filter((pid) => Number.isInteger(pid) && pid > 1);
+}
+
+function onlyMonitorPid() {
+  const pids = monitorPids();
+  assert.equal(pids.length, 1, `expected one lane monitor, found ${pids.join(', ')}`);
+  return pids[0];
 }
 
 before(() => {
@@ -91,11 +109,12 @@ before(() => {
   const snapshot = cli(['lane', lane, 'snapshot']);
   assert.equal(snapshot.code, 0, snapshot.all);
   assert.match(snapshot.stdout, /NATIVE_RECOVERY_MARKER/);
+  firstMonitorPid = onlyMonitorPid();
+  assert.equal(isAlive(firstMonitorPid), true);
 });
 
 after(() => {
   try { cli([`-s=${session}`, 'close']); } catch {}
-  try { cli(['agent-browser', '--session', lane, 'close']); } catch {}
   removeTmpDir(socketDir);
   removeTmpDir(home);
 });
@@ -110,6 +129,16 @@ test('a killed browser restores natively, rebinds once, and does not replay the 
     everyMs: 100,
   });
   assert.equal(stopped.ok, true, `Chrome ${firstPid} did not exit`);
+  const oldMonitorStopped = await waitFor(
+    () => isAlive(firstMonitorPid),
+    (alive) => !alive,
+    { timeoutMs: 5_000, everyMs: 50 }
+  );
+  assert.equal(
+    oldMonitorStopped.ok,
+    true,
+    `lane monitor ${firstMonitorPid} survived its Chrome connection`
+  );
 
   console.log('lane-recovery: invoking the command that discovers the dead browser');
   const recovered = cli(['lane', lane, 'snapshot']);
@@ -133,6 +162,11 @@ test('a killed browser restores natively, rebinds once, and does not replay the 
   assert.equal(state.url, pathToFileURL(fixture).href);
   assert.ok(state.port > 0);
   assert.equal(statSync(statePath).mode & 0o777, 0o600);
+  const secondMonitorPid = onlyMonitorPid();
+  assert.notEqual(secondMonitorPid, firstMonitorPid);
+  assert.equal(isAlive(secondMonitorPid), true);
+  const daemonPid = Number(readFileSync(join(socketDir, `${lane}.pid`), 'utf8').trim());
+  assert.ok(Number.isInteger(daemonPid) && daemonPid > 1 && isAlive(daemonPid));
 
   const targets = await fetch(`http://127.0.0.1:${state.port}/json/list`).then((response) => {
     assert.equal(response.ok, true, `CDP target list returned HTTP ${response.status}`);
@@ -150,4 +184,15 @@ test('a killed browser restores natively, rebinds once, and does not replay the 
     readdirSync(backupRoot).some((name) => name.startsWith('backup-')),
     'native session files were not backed up before relaunch'
   );
+
+  const closed = cli([`-s=${session}`, 'close']);
+  assert.equal(closed.code, 0, closed.all);
+  const resourcesStopped = await waitFor(
+    () => ({ monitor: isAlive(secondMonitorPid), daemon: isAlive(daemonPid) }),
+    (state) => !state.monitor && !state.daemon,
+    { timeoutMs: 5_000, everyMs: 50 }
+  );
+  assert.equal(resourcesStopped.ok, true, JSON.stringify(resourcesStopped.last));
+  assert.equal(existsSync(join(socketDir, `${lane}.pid`)), false);
+  assert.equal(existsSync(statePath), false);
 });

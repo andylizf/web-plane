@@ -81,7 +81,6 @@ before(async () => {
 });
 
 after(() => {
-  try { cli(['agent-browser', '--session', lane, 'close']); } catch {}
   if (chrome) killQuietly(chrome.pid);
   removeTmpDir(socketDir);
   removeTmpDir(home);
