@@ -18,6 +18,7 @@ process.env.WEB_PLANE_RUNTIME_DIR = runtime;
 const {
   appendSessionEvent,
   backupChromeSessionState,
+  enableMaximumMemorySaverForAllProfiles,
   ensureManagedLaunchConfig,
   prepareManagedProfile,
   prepareSessionLogs,
@@ -31,8 +32,13 @@ function makeProfile(session, preferences) {
   const dir = join(runtime, 'profiles', session);
   mkdirSync(join(dir, 'Default'), { recursive: true });
   const path = join(dir, 'Default', 'Preferences');
+  const localStatePath = join(dir, 'Local State');
   writeFileSync(path, JSON.stringify(preferences));
-  return { dir, path };
+  writeFileSync(localStatePath, JSON.stringify({
+    performance_tuning: { unrelated: 'preserved' },
+    unrelated_local_state: { remains: true },
+  }));
+  return { dir, path, localStatePath };
 }
 
 test('launch preparation clears crash recovery and agent-hostile prompts atomically', () => {
@@ -46,6 +52,7 @@ test('launch preparation clears crash recovery and agent-hostile prompts atomica
 
   const result = prepareManagedProfile('crashed');
   const state = JSON.parse(readFileSync(profile.path, 'utf8'));
+  const localState = JSON.parse(readFileSync(profile.localStatePath, 'utf8'));
 
   assert.equal(result.changed, true);
   assert.equal(state.profile.exit_type, 'Normal');
@@ -58,14 +65,29 @@ test('launch preparation clears crash recovery and agent-hostile prompts atomica
   assert.equal(state.credentials_enable_service, false);
   assert.equal(state.credentials_enable_autosignin, false);
   assert.deepEqual(state.unrelated, { remains: true });
+  assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
+  assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
+  assert.equal(localState.performance_tuning.unrelated, 'preserved');
+  assert.deepEqual(localState.unrelated_local_state, { remains: true });
   assert.equal(readFileSync(result.backup, 'utf8'), original);
+  assert.ok(result.localStateBackup);
+  const backedUpLocalState = JSON.parse(readFileSync(result.localStateBackup, 'utf8'));
+  assert.equal(backedUpLocalState.performance_tuning.unrelated, 'preserved');
   assert.equal(existsSync(`${profile.path}.web-plane-staged`), false);
+  assert.equal(existsSync(`${profile.localStatePath}.web-plane-staged`), false);
+
+  const second = prepareManagedProfile('crashed');
+  assert.equal(second.changed, false);
+  assert.equal(second.backup, null);
+  assert.equal(second.localStateBackup, null);
 });
 
 test('launch preparation creates safe defaults for a fresh managed profile', () => {
   const result = prepareManagedProfile('fresh');
   const path = join(runtime, 'profiles', 'fresh', 'Default', 'Preferences');
+  const localStatePath = join(runtime, 'profiles', 'fresh', 'Local State');
   const state = JSON.parse(readFileSync(path, 'utf8'));
+  const localState = JSON.parse(readFileSync(localStatePath, 'utf8'));
 
   assert.equal(result.changed, true);
   assert.equal(result.backup, null);
@@ -74,6 +96,30 @@ test('launch preparation creates safe defaults for a fresh managed profile', () 
   assert.equal(state.session.restore_on_startup, 1);
   assert.equal(state.autofill.profile_enabled, false);
   assert.equal(state.credentials_enable_service, false);
+  assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
+  assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
+});
+
+test('install preparation enables Maximum Memory Saver for every existing managed profile', () => {
+  const profile = makeProfile('install-existing', { untouched: true });
+  writeFileSync(profile.localStatePath, JSON.stringify({
+    performance_tuning: {
+      high_efficiency_mode: { state: 0, aggressiveness: 0 },
+      untouched: true,
+    },
+  }));
+  writeFileSync(join(runtime, 'profiles', 'not-a-profile.txt'), 'ignored');
+
+  const results = enableMaximumMemorySaverForAllProfiles();
+  const result = results.find((entry) => entry.session === 'install-existing');
+  const localState = JSON.parse(readFileSync(profile.localStatePath, 'utf8'));
+
+  assert.equal(result?.changed, true);
+  assert.ok(result?.localStateBackup);
+  assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
+  assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
+  assert.equal(localState.performance_tuning.untouched, true);
+  assert.equal(results.some((entry) => entry.session === 'not-a-profile.txt'), false);
 });
 
 test('managed launch config preserves custom settings and adds required Chrome flags once', () => {

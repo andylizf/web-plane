@@ -220,6 +220,34 @@ const MUTATIONS = [
       },
     ],
   },
+  {
+    name: 'hard-timeout-never-expires',
+    describes: 'turns every expired lease back into an active lease, so abandoned pages survive',
+    suite: 'tests/integration/lane-reclamation.test.js',
+    expect: 'hard idle timeout closes abandoned lanes regardless of page state',
+    edits: [
+      {
+        file: 'lib/lane-lifecycle.js',
+        from: "  return decision('hard-timeout', ageMs);",
+        to: "  return decision('not-idle', ageMs);",
+      },
+    ],
+  },
+  {
+    name: 'hard-timeout-respects-beforeunload',
+    describes:
+      'uses a page-requested close that beforeunload can cancel instead of closing the CDP target',
+    suite: 'tests/integration/lane-reclamation.test.js',
+    expect: 'hard idle timeout closes abandoned lanes regardless of page state',
+    edits: [
+      {
+        file: 'lib/lane-monitor.js',
+        from:
+          "      const result = await connection.send('Target.closeTarget', { targetId }, null, 5_000);",
+        to: "      const result = await connection.send('Page.close', {}, mainSession, 5_000);",
+      },
+    ],
+  },
 ];
 
 const SKIP = new Set(['.git', 'node_modules', 'tmp', 'logs', '.playwright-cli']);

@@ -58,9 +58,10 @@ over CDP instead of downloading another browser.
    web-plane -s=main attach --as task1 https://example.com
    ```
 
-   `-s` selects the profile: one login identity and one Chrome process. `--as`
-   selects the lane: one agent-browser daemon and one labelled tab. Agents that
-   share an identity use the same profile and different lanes.
+   `-s` selects a managed `--user-data-dir` that web-plane expects to carry one
+   login identity in one Chrome browser instance. `--as` selects the lane: one
+   agent-browser daemon and one labelled tab. Agents that share an identity use
+   the same profile and different lanes.
 
 2. Drive through the lane. agent-browser keeps the lane bound to its own CDP
    target; the wrapper activates that target for Chrome-owned UI and adds
@@ -78,8 +79,9 @@ over CDP instead of downloading another browser.
 
    `attach` and lane navigation wait for network idle for 15 seconds by default.
    Use `--wait-for <load|domcontentloaded|networkidle|selector>`, `--timeout
-   <ms>`, or `--no-wait` when the page needs a different contract. `type` reports
-   before/after lengths without printing field contents.
+   <ms>`, or `--no-wait` when the page needs a different contract. `type` reads
+   the same field back: ordinary values are printed, while passwords are compared
+   internally and reported by length only.
 
 3. Confirm you're stealthy (optional):
 
@@ -91,22 +93,48 @@ For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
 `web-plane agent-browser --session main --pin-tab connect <port>` command it
 prints. Do not omit either flag: they isolate the daemon and its target binding.
 
-One lane owns one tab and belongs to the task that attached it. Unless the lane
-is explicitly kept under the exception below, arrange a finally-equivalent
-cleanup as soon as attach succeeds so `web-plane lane task1 close` runs before
-the task returns on success, error, cancellation, or interruption. It closes
-only that tab. Use another lane when the task needs another page.
-Lanes sharing one profile keep independent pinned targets; web-plane briefly
-serializes each command boundary because Chrome has only one selected tab.
+The manual agent-browser command above does not acquire web-plane's command lock;
+reserve it for solitary diagnostics, not shared-lane driving.
 
-Reserve `web-plane lane task1 keep` for a deliberately long-lived page that
-must outlive its task, and name the workflow responsible for its later cleanup.
-A kept lane is excluded from the 24-hour backstop. When the exception ends,
-that owner must run `web-plane lane task1 unkeep` and then `web-plane lane
-task1 close`; `unkeep` removes protection but does not close the page. As an
-abnormal-exit backstop, web-plane reclaims an unkept lane after 24 hours without
-a command through that lane only when its session is hidden and every safety
-check is known clear. This backstop does not replace task cleanup.
+One lane owns one tab and belongs to the task that attached it. Unless the user
+explicitly wants the page to outlive the task, arrange a finally-equivalent
+cleanup as soon as attach succeeds so `web-plane lane task1 close` runs before
+the task returns on success, error, or cooperative cancellation. It closes that
+tab and stops its agent-browser daemon. Use another lane when the task needs
+another page.
+Lanes sharing one profile keep independent pinned targets, and callers may
+submit commands concurrently. web-plane `lane`, `attach`, and crash-recovery
+calls that drive one profile queue for a critical section: target activation,
+native UI checks, and the command itself. Activation changes which tab and
+window Chrome treats as active, and Chrome-owned UI is tied to that active
+target, so those steps stay atomic.
+`attach` and crash recovery use the same lock while connecting, selecting or
+creating a tab, navigating, and waiting for readiness. A long command holds the
+lock for that command's duration. Other profiles, page scripts, page network
+work, and local `netlog` reads continue. An ordinary lane command waits up to 30
+seconds before returning `LANE_BUSY`; attach and recovery use the same default
+timeout but report their own reserve/recovery failure. The reaper waits one
+second and retries later.
+This web-plane command lock is separate from Chrome's `ProcessSingleton`, which
+governs browser-instance ownership and forwards later launches for the same
+`--user-data-dir`; it does not serialize web-plane commands or native UI checks.
+
+If a page deliberately outlives its task, leave it open without a special keep
+state. Its detached monitor enters forced reclamation 24 hours after the last
+lane command. Once it acquires the same-profile critical section and confirms
+the target mapping, it directly closes the target regardless of visibility,
+unsaved input, media, `beforeunload`, requests, or downloads; then it stops that
+lane's agent-browser daemon, removes the lane mapping, and exits. Lock contention
+or a failed close/driver cleanup is logged and retried rather than reported as
+success. Any same-profile critical-section holder can delay an attempt; any
+command through this lane renews its deadline. If the monitor process itself is
+killed, this backstop resumes only when attach or recovery starts it again. The
+backstop does not replace task cleanup.
+
+`web-plane install` enables Chrome Maximum Memory Saver for every existing
+managed profile, and each later launch enforces it again. Chrome may deactivate
+a background tab and reload it on next access; it does not close the lane or
+replace the hard idle timeout.
 
 If an `eval` starts asynchronous work and returns before that work fails, read
 the lane's persistent error buffer instead of treating the later empty result as

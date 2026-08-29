@@ -21,7 +21,6 @@ const {
   listLaneStates,
   recallLane,
   rememberLane,
-  setLaneKeep,
   touchLaneCommand,
   updateLaneTarget,
 } = await import(`../../lib/lane-state.js?test=${Date.now()}`);
@@ -37,14 +36,14 @@ test('stores full recovery state in a private atomic file with a hashed name', (
   });
   const paths = laneStatePaths('application/main');
 
-  assert.equal(saved.version, 1);
+  assert.equal(saved.version, 2);
   assert.equal(saved.lane, 'application/main');
   assert.equal(saved.session, 'signed-in');
   assert.equal(saved.port, 61234);
   assert.equal(saved.url, 'https://portal.example/form?token=private#address');
   assert.match(saved.openedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(saved.lastCommandAt, saved.openedAt);
-  assert.equal(saved.keep, false);
+  assert.equal(Object.hasOwn(saved, 'keep'), false);
   assert.equal(statSync(paths.dir).mode & 0o777, 0o700);
   assert.equal(statSync(paths.state).mode & 0o777, 0o600);
   assert.doesNotMatch(paths.state, /application|main/);
@@ -74,7 +73,7 @@ test('merges monitor target updates without losing lane ownership', () => {
   assert.match(updated.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
-test('command leases and keep state are explicit and independently mutable', () => {
+test('command leases are explicit and legacy keep state is removed', () => {
   rememberLane('leased', 'profile', 50001, {
     targetId: 'LEASED',
     lastCommandAt: '2026-08-28T12:00:00.000Z',
@@ -82,16 +81,20 @@ test('command leases and keep state are explicit and independently mutable', () 
 
   const touched = touchLaneCommand('leased', '2026-08-29T01:00:00.000Z');
   assert.equal(touched.lastCommandAt, '2026-08-29T01:00:00.000Z');
-  assert.equal(touched.keep, false);
+  assert.equal(Object.hasOwn(touched, 'keep'), false);
   assert.equal(touched.targetId, 'LEASED');
 
-  const kept = setLaneKeep('leased', true);
-  assert.equal(kept.keep, true);
-  assert.equal(kept.lastCommandAt, touched.lastCommandAt);
-
-  const released = setLaneKeep('leased', false);
-  assert.equal(released.keep, false);
-  assert.equal(released.lastCommandAt, touched.lastCommandAt);
+  const paths = laneStatePaths('legacy-kept');
+  writeFileSync(paths.state, JSON.stringify({
+    version: 1,
+    lane: 'legacy-kept',
+    session: 'profile',
+    port: 50001,
+    keep: true,
+  }));
+  const migrated = recallLane('legacy-kept');
+  assert.equal(migrated.version, 2);
+  assert.equal(Object.hasOwn(migrated, 'keep'), false);
 });
 
 test('lists only validated hashed lane records in the requested session', () => {
@@ -114,7 +117,7 @@ test('lists only validated hashed lane records in the requested session', () => 
   );
   assert.deepEqual(
     listLaneStates().map((state) => state.lane).sort(),
-    ['application/main', 'first', 'foreign', 'leased', 'monitor', 'second']
+    ['application/main', 'first', 'foreign', 'leased', 'legacy-kept', 'monitor', 'second']
   );
 });
 
@@ -125,7 +128,7 @@ test('reads and privately migrates a safe legacy session-port record', () => {
 
   const state = recallLane('legacy');
 
-  assert.equal(state.version, 1);
+  assert.equal(state.version, 2);
   assert.equal(state.lane, 'legacy');
   assert.equal(state.session, 'old-profile');
   assert.equal(state.port, 45555);

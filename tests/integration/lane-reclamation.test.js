@@ -23,7 +23,7 @@ const socketDir = join(REPO_ROOT, 'tmp', `q${process.pid}`);
 const session = `qp${process.pid}`;
 const ttlMs = 2_500;
 const intervalMs = 300;
-const logDir = join(REPO_ROOT, 'logs', 'issue32', 'integration');
+const logDir = join(REPO_ROOT, 'logs', 'lane-reclamation', 'integration');
 const resultLog = join(logDir, 'run.jsonl');
 const runId = `${new Date().toISOString()}-${process.pid}`;
 let server;
@@ -72,6 +72,24 @@ function sessionEvents() {
   return readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
 
+function agentBrowserPid(lane) {
+  try {
+    return Number(readFileSync(join(socketDir, `${lane}.pid`), 'utf8').trim());
+  } catch {
+    return null;
+  }
+}
+
+function processIsAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === 'EPERM';
+  }
+}
+
 async function targetExists({ port, targetId }) {
   try {
     const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then((response) => response.json());
@@ -85,8 +103,18 @@ async function waitForLaneGone(lane, state, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
   while (Date.now() < deadline) {
-    last = { mapping: laneState(lane), target: await targetExists(state) };
-    if (last.mapping === null && last.target === false) return { ok: true, last };
+    last = {
+      mapping: laneState(lane),
+      target: await targetExists(state),
+      daemon: processIsAlive(state.daemonPid),
+      daemonSidecar: existsSync(join(socketDir, `${lane}.pid`)),
+    };
+    if (
+      last.mapping === null &&
+      last.target === false &&
+      last.daemon === false &&
+      last.daemonSidecar === false
+    ) return { ok: true, last };
     await sleep(150);
   }
   return { ok: false, last };
@@ -104,7 +132,9 @@ function attach(lane, path, ...extra) {
   assert.equal(result.code, 0, result.all);
   const state = laneState(lane);
   assert.ok(state?.targetId && state.port > 0, `missing state for ${lane}`);
-  return state;
+  const daemonPid = agentBrowserPid(lane);
+  assert.ok(Number.isInteger(daemonPid) && daemonPid > 1, `missing daemon pid for ${lane}`);
+  return { ...state, daemonPid };
 }
 
 function laneCommand(lane, ...args) {
@@ -153,16 +183,19 @@ after(async () => {
   removeTmpDir(home);
 });
 
-test('hidden lane reclamation closes only old lanes proven safe', async () => {
-  const sibling = `sib${process.pid}`;
-  attach(sibling, '/clean');
-  laneCommand(sibling, 'keep');
+test('hard idle timeout closes abandoned lanes regardless of page state', async () => {
   const clean = `cln${process.pid}`;
   const cleanState = attach(clean, '/clean');
+  const sibling = `sib${process.pid}`;
+  const siblingState = attach(sibling, '/clean');
   const cleanGone = await waitForLaneGone(clean, cleanState);
   assert.equal(cleanGone.ok, true, `clean lane survived: ${JSON.stringify(cleanGone.last)}`);
-  assert.ok(laneState(sibling), 'the protected sibling lane was also removed');
-  record('clean-hidden-lane', 'passed', { siblingSurvived: true });
+  assert.equal(await targetExists(siblingState), true, 'closing one lane closed its sibling tab');
+  assert.equal(processIsAlive(siblingState.daemonPid), true, 'closing one lane stopped its sibling driver');
+  laneCommand(sibling, 'close');
+  const siblingGone = await waitForLaneGone(sibling, siblingState);
+  assert.equal(siblingGone.ok, true, 'explicit lane close left its driver running');
+  record('lane-and-driver-hard-timeout', 'passed', { siblingSurvived: true });
 
   const renewed = `cmd${process.pid}`;
   const renewedState = attach(renewed, '/clean');
@@ -174,81 +207,59 @@ test('hidden lane reclamation closes only old lanes proven safe', async () => {
   assert.equal(renewedGone.ok, true, 'renewed lane did not close after the refreshed lease expired');
   record('command-renews-lease', 'passed');
 
-  const kept = `kep${process.pid}`;
-  const keptState = attach(kept, '/clean');
-  laneCommand(kept, 'keep');
-  await sleep(ttlMs + intervalMs * 3);
-  assert.equal(await targetExists(keptState), true, 'keep did not protect the target');
-  laneCommand(kept, 'unkeep');
-  const keptGone = await waitForLaneGone(kept, keptState);
-  assert.equal(keptGone.ok, true, 'unkeep did not restore automatic reclamation');
-  record('keep-unkeep', 'passed');
-
   const dirty = `dty${process.pid}`;
   const dirtyState = attach(dirty, '/dirty');
   laneCommand(dirty, 'type', 'input', 'unsubmitted draft');
   laneCommand(dirty, 'click', 'button');
-  const dirtyProbe = laneCommand(
-    dirty,
-    'eval',
-    'window[Symbol.for("web-plane.lifecycle.v1")]?.dirty === true'
-  );
-  assert.match(dirtyProbe.stdout, /true/, `cancelled reset cleared tracker: ${dirtyProbe.all}`);
-  await sleep(ttlMs + intervalMs * 3);
-  const dirtyEvents = sessionEvents().filter((event) => event.lane === dirty);
-  assert.equal(
-    await targetExists(dirtyState),
-    true,
-    `typed unsubmitted input was reclaimed after a cancelled reset: ${JSON.stringify(dirtyEvents)}`
-  );
-  record('unsubmitted-input', 'passed');
-  laneCommand(dirty, 'close');
+  const dirtyGone = await waitForLaneGone(dirty, dirtyState);
+  assert.equal(dirtyGone.ok, true, 'unsubmitted input bypassed the hard idle timeout');
+  record('unsubmitted-input-hard-timeout', 'passed');
 
   const media = `med${process.pid}`;
   const mediaState = attach(media, '/media');
-  await sleep(ttlMs + intervalMs * 3);
-  assert.equal(await targetExists(mediaState), true, 'playing media was reclaimed');
-  record('playing-media', 'passed');
-  laneCommand(media, 'close');
+  const mediaGone = await waitForLaneGone(media, mediaState);
+  assert.equal(mediaGone.ok, true, 'playing media bypassed the hard idle timeout');
+  record('playing-media-hard-timeout', 'passed');
 
   const slow = `net${process.pid}`;
   const slowState = attach(slow, '/slow', '--no-wait');
-  await sleep(ttlMs + intervalMs * 3);
-  assert.equal(await targetExists(slowState), true, 'an active response was reclaimed');
+  const slowGone = await waitForLaneGone(slow, slowState);
+  assert.equal(slowGone.ok, true, 'an active request bypassed the hard idle timeout');
   const released = await fetch(`${origin}/release`);
   assert.equal(released.ok, true);
-  const slowGone = await waitForLaneGone(slow, slowState);
-  assert.equal(slowGone.ok, true, 'lane did not close after the active response finished');
-  record('active-network-request', 'passed');
+  record('active-network-hard-timeout', 'passed');
 
   const guarded = `bun${process.pid}`;
   const guardedState = attach(guarded, '/beforeunload');
   laneCommand(guarded, 'click', 'button');
-  await sleep(ttlMs + intervalMs * 4);
+  const guardedGone = await waitForLaneGone(guarded, guardedState);
   const guardedEvents = sessionEvents().filter((event) => event.lane === guarded);
-  assert.equal(
-    await targetExists(guardedState),
-    true,
-    `beforeunload lane was reclaimed: ${JSON.stringify(guardedEvents)}`
-  );
-  assert.ok(laneState(guarded), 'beforeunload lane mapping was removed');
+  assert.equal(guardedGone.ok, true, 'beforeunload bypassed the hard idle timeout');
   assert.ok(
     guardedEvents.some((event) =>
-      event.type === 'lane-reap-skipped' && event.reason === 'beforeunload-registered'
+      event.type === 'lane-reaped' && event.reason === 'hard-timeout'
     ),
-    `beforeunload protection was not recorded: ${JSON.stringify(guardedEvents)}`
+    `hard timeout was not recorded: ${JSON.stringify(guardedEvents)}`
   );
-  record('beforeunload-protected', 'passed');
+  record('beforeunload-hard-timeout', 'passed');
 
   const visible = `vis${process.pid}`;
   const visibleState = attach(visible, '/clean');
   const shown = cli([`-s=${session}`, 'show']);
   assert.equal(shown.code, 0, shown.all);
-  await sleep(ttlMs + intervalMs * 3);
-  assert.equal(await targetExists(visibleState), true, 'visible session lane was reclaimed');
+  const visibleGone = await waitForLaneGone(visible, visibleState);
+  assert.equal(visibleGone.ok, true, 'visible lane bypassed the hard idle timeout');
   const hidden = cli([`-s=${session}`, 'hide']);
   assert.equal(hidden.code, 0, hidden.all);
-  const visibleGone = await waitForLaneGone(visible, visibleState);
-  assert.equal(visibleGone.ok, true, 'hidden lane did not resume reclamation');
-  record('visible-then-hidden', 'passed');
+  record('visible-hard-timeout', 'passed');
+
+  const closed = cli([`-s=${session}`, 'close']);
+  assert.equal(closed.code, 0, closed.all);
+  const localState = JSON.parse(readFileSync(
+    join(runtime, 'profiles', session, 'Local State'),
+    'utf8'
+  ));
+  assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
+  assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
+  record('maximum-memory-saver-persisted-after-chrome-exit', 'passed');
 });

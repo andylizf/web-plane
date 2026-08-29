@@ -3,7 +3,11 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MIN_AGENT_BROWSER } from '../../lib/config.js';
-import { activeTargetId, parseAgentBrowserPageErrors } from '../../lib/cdp.js';
+import {
+  activeTargetId,
+  isCdpVersionPayload,
+  parseAgentBrowserPageErrors,
+} from '../../lib/cdp.js';
 import { runCli } from '../helpers/cli.js';
 import { makeTmpDir, removeTmpDir } from '../helpers/tmpdir.js';
 
@@ -24,6 +28,16 @@ test('reads only the active stable target id from agent-browser JSON', () => {
   assert.equal(activeTargetId(listing), 'TARGET-B');
   assert.equal(activeTargetId('{not-json'), null);
   assert.equal(activeTargetId(JSON.stringify({ success: true, data: { tabs: [] } })), null);
+});
+
+test('CDP health rejects an HTTP success carrying HTML or unrelated JSON', () => {
+  assert.equal(isCdpVersionPayload('<!DOCTYPE html>'), false);
+  assert.equal(isCdpVersionPayload({ status: 'ok' }), false);
+  assert.equal(isCdpVersionPayload({ webSocketDebuggerUrl: 'https://example.test' }), false);
+  assert.equal(
+    isCdpVersionPayload({ webSocketDebuggerUrl: 'ws://127.0.0.1:49152/devtools/browser/id' }),
+    true
+  );
 });
 
 test('reads the persistent page-error buffer from agent-browser JSON', () => {

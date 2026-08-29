@@ -213,24 +213,50 @@ Chrome-owned UI is observable, without reselecting it through agent-browser or
 invalidating refs from the preceding snapshot. The wrapper checks for blocking
 browser/native UI before and after each command. Page input fails closed;
 inspection and navigation remain available for diagnosis and recovery. Lanes
-on one profile keep independent pinned targets, while this command boundary is
-serialized because Chrome has only one selected tab.
+on one profile keep independent pinned targets, and callers may submit their
+commands concurrently. web-plane `lane`, `attach`, and crash-recovery calls that
+drive one profile queue for a critical section: activate that lane's target,
+check Chrome-owned UI, execute the command, and check the UI again. Activation
+changes which tab and window Chrome treats as active, and native UI is tied to
+that active target, so those steps cannot interleave safely. `attach` and crash
+recovery use the same lock
+while connecting, creating or selecting a tab, navigating, and waiting for
+readiness. A long command such as `wait 30s` therefore holds the critical
+section for its own duration. Other profiles, page scripts, page network work,
+and local `netlog` reads continue. An ordinary lane command waits up to 30
+seconds before returning `LANE_BUSY`; attach and recovery use the same default
+timeout but report their own reserve/recovery failure. The reaper waits one
+second and retries later.
+This web-plane command lock is separate from Chrome's `ProcessSingleton`, which
+governs browser-instance ownership and forwards later launches for the same
+`--user-data-dir`; it does not serialize web-plane commands or native UI checks.
 
 The task that attaches a lane owns its lifecycle. Close the lane on every task
-exit path, including errors, before returning; closing a lane never closes its
-sibling tabs or the shared profile. Use `web-plane lane <lane> keep` only for a
-deliberate page that must outlive the task, and `unkeep` when that exception
-ends.
+exit path, including errors and cooperative cancellation, before returning.
+Closing a lane stops its driver but never closes sibling tabs or the shared
+profile. If a page deliberately outlives the task, leave it open without a
+special keep state; the hard idle timeout below still applies.
 
-An abandoned hidden lane becomes eligible for reclamation after 24 hours with
-no lane command. The monitor closes it only when the lane is not kept, its
-target and hidden state are verified, all frames are inspectable, and there is
-no unsubmitted input, playing media, registered `beforeunload` handler, active
-request, or active download. Every old-lane close or skip decision is appended
+Every attached lane starts a detached monitor that enters forced reclamation 24
+hours after its last lane command. Once it acquires the same-profile critical
+section and confirms the target mapping, it directly closes the target even if
+it is visible or has unsaved input, media, `beforeunload`, a request, or a
+download. It then stops that lane's agent-browser daemon, removes the lane
+mapping, and exits. Lock contention or a failed close/driver cleanup is logged
+and retried rather than reported as success. Any same-profile critical-section
+holder can delay an attempt; a command through this lane renews its deadline.
+Every close, retry, or failed cleanup is appended
 to the session JSONL log. `WEB_PLANE_LANE_TTL_MS` (default `86400000`) and
 `WEB_PLANE_REAP_INTERVAL_MS` (default `3600000`) override the two intervals for
-controlled testing; automatic reclamation is a crash backstop, not a substitute
-for normal lane cleanup.
+controlled testing. Normal task cleanup remains immediate: the hard timeout is
+only the abandoned-page backstop. If the detached monitor itself is killed, the
+backstop resumes only when the lane is attached or recovered again.
+
+`web-plane install` enables Chrome's Maximum Memory Saver for every existing
+managed profile, and each later profile launch enforces it again. That is a
+separate, earlier pressure valve: Chrome may deactivate a background tab and
+reload it on its next access, but the lane and target remain until they are
+explicitly closed or reach the hard idle timeout.
 
 `attach`, `open`, `goto`, and `navigate` wait for network idle for up to 15
 seconds by default. Override that with `--wait-for load`, `--wait-for

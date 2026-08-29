@@ -241,9 +241,9 @@ try {
     output: pageErrors.stdout,
   });
 
-  // Chrome has only one selected tab. The target activation and UI gates must
-  // therefore be serialized across lanes that share a profile, even though
-  // agent-browser keeps their pinned target state independently.
+  // Chrome-owned UI follows the active tab and window. Target activation and
+  // the UI gates must therefore be serialized across lanes that share a profile,
+  // even though agent-browser keeps their pinned target state independently.
   const holdingLane = cli(['lane', lane, 'wait', '800'], { expect: 0 });
   await waitForLaneLock();
   const queuedAt = Date.now();

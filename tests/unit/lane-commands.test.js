@@ -33,17 +33,8 @@ test('clear is an iframe-safe empty fill and close is tab-scoped', () => {
     operation: 'close-lane',
     wait: null,
   });
-  assert.deepEqual(translateLaneCommand(['keep']), {
-    args: [],
-    operation: 'keep-lane',
-    wait: null,
-  });
-  assert.deepEqual(translateLaneCommand(['unkeep']), {
-    args: [],
-    operation: 'unkeep-lane',
-    wait: null,
-  });
-  assert.throws(() => translateLaneCommand(['keep', 'extra']), /takes no arguments/);
+  assert.throws(() => translateLaneCommand(['keep']), /was removed/);
+  assert.throws(() => translateLaneCommand(['unkeep']), /was removed/);
 });
 
 test('navigation waits for network idle by default and accepts explicit overrides', () => {
@@ -150,7 +141,7 @@ test('lane help exposes the safe and diagnostic paths hidden by top-level help',
     'require an exact value match',
     'password output is length-only',
     'close',
-    'keep',
+    'lane driver',
     'WEB_PLANE_LANE_TTL_MS',
     'WEB_PLANE_REAP_INTERVAL_MS',
   ]) {

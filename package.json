@@ -1,6 +1,6 @@
 {
   "name": "web-plane",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "The web control plane for AI agents. Real Chrome, zero flash, Cloudflare-proof.",
   "type": "module",
   "bin": {
