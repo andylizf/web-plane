@@ -254,6 +254,17 @@ resume by snapshot once it's past. Stealth avoids being *flagged*; it does not d
 challenge that fires.
 
 ### Visibility choreography — show only the finished step
+
+**`attach` does not reset visibility, and a command that failed is not evidence about the
+state it was trying to produce.** A session that has been shown stays shown; a later
+`attach --as <lane>` reuses it and says so (`Session: main (reused, may already have tabs)`),
+so the window comes up visible. And `hide` can fail — the browser dying mid-command produces
+a stack trace plus `browser behind lane '<lane>' is no longer running`, which looks from the
+outside exactly like the window going away. Reading that as "the window is closed" and saying
+so is asserting a state you did not query. **Verify visibility explicitly after every
+`attach`, and after any `show`/`hide` whose command did not return cleanly** — and where the
+question is whether a window is on screen, `screencapture -x` of the display answers it,
+while a page screenshot cannot.
 The hidden window is the default state for the entire task. `show` exists for exactly one
 moment: when the human must act (login, CAPTCHA, MFA, a final confirm). The contract:
 
@@ -295,6 +306,12 @@ yourself", "no subagents" — overrides that.
 This is not the AI-wrapping ruled out at the top of this file: a subagent is the same loop
 and the same model, reading the same snapshots and making the same decisions. The only thing
 that changes is whose context absorbs them.
+
+State in the brief that **web-plane is the only permitted method, and that failing to drive it
+is the outcome to report** — not a licence to reach for `curl`, a plain fetch, an API, or a
+second browser. A subagent told only "get X" treats the method as incidental and will fall
+back to whatever works, which silently loses the session, the fingerprint and the login the
+profile existed to carry.
 
 Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
 for, what changed, the final URL. Never raw snapshots, never `.playwright-cli/` dumps.
