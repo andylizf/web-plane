@@ -41,6 +41,13 @@ test('--help lists the commands that exist', () => {
   }
 });
 
+test('attach help exposes readiness flags without starting a browser', () => {
+  const r = runCli(['attach', '--help'], { home });
+  assert.equal(r.code, 0, r.all);
+  for (const flag of ['--wait-for', '--timeout', '--no-wait']) assert.ok(r.stdout.includes(flag));
+  assert.match(r.stdout, /Waits for load by default/);
+});
+
 test('lane help describes lane commands without requiring an attached lane', () => {
   const r = runCli(['lane', 'example', '--help'], { home });
   assert.equal(r.code, 0);

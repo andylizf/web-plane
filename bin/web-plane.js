@@ -122,6 +122,11 @@ Integration (drive with agent-browser):
                           -s picks the profile (login identity), --as picks the
                           lane. Concurrent agents on one identity: same -s,
                           different --as.
+                          Waits for load by default. Readiness options:
+                          --wait-for <load|domcontentloaded|networkidle|selector>
+                          --timeout <ms> (default 15000) | --no-wait
+                          A readiness timeout keeps the lane available for
+                          inspection, retry, or lane <lane> close.
   lane <lane> <args...>   Run an agent-browser command against that lane's tab,
                           using its persistent pinned target and web-plane's UI
                           gate. Use this instead of calling agent-browser

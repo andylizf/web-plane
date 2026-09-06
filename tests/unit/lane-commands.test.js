@@ -65,6 +65,15 @@ test('navigation waits for network idle by default and accepts explicit override
   });
 });
 
+test('attach can default to load while honoring explicit readiness flags', () => {
+  const options = { defaultWaitFor: 'load' };
+  assert.deepEqual(translateLaneCommand(['open', 'https://example.com'], options).wait,
+    ['wait', '--load', 'load', '--timeout', '15000']);
+  assert.deepEqual(translateLaneCommand(['open', 'https://example.com', '--wait-for', 'networkidle'], options).wait,
+    ['wait', '--load', 'networkidle', '--timeout', '15000']);
+  assert.equal(translateLaneCommand(['open', 'https://example.com', '--no-wait'], options).wait, null);
+});
+
 test('invalid web-plane lane flags fail before reaching agent-browser', () => {
   assert.throws(
     () => translateLaneCommand(['navigate', 'https://example.com', '--timeout', 'soon']),
