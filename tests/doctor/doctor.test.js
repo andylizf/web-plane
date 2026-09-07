@@ -77,6 +77,13 @@ test('a runtime built for another protocol is rejected', () => {
   assert.match(r.stdout, /fix: web-plane install/);
 });
 
+test('the runtime without the WindowServer alpha hook requires a rebuild', () => {
+  const r = doctorOn('pre-alpha-hook', { runtimeVersion: '8' });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, new RegExp(`installed protocol 8 != package protocol ${RUNTIME_VERSION}`));
+  assert.match(r.stdout, /fix: web-plane install/);
+});
+
 test('an unversioned legacy runtime is rejected', () => {
   const r = doctorOn('unversioned-runtime', { runtimeVersion: null });
   assert.equal(r.code, 1);

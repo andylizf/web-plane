@@ -49,6 +49,20 @@ static BOOL isHidden(void) {
     return access(hiddenPath, F_OK) == 0;
 }
 
+// Chromium's constrained-window animation writes directly to WindowServer,
+// bypassing NSWindow.alphaValue and the ordering hooks. Clamp those writes at
+// the same boundary so a hidden modal cannot fade in between timer ticks.
+static BOOL gClampWindowServerAlpha = NO;
+extern CGError CGSSetWindowAlpha(int connection, CGWindowID window, float alpha);
+static CGError hiddenWindowServerAlpha(int connection, CGWindowID window, float alpha) {
+    return CGSSetWindowAlpha(connection, window,
+                            gClampWindowServerAlpha && isHidden() ? 0.0f : alpha);
+}
+__attribute__((used, section("__DATA,__interpose")))
+static const struct { const void *replacement; const void *original; } alphaInterpose = {
+    (const void *)hiddenWindowServerAlpha, (const void *)CGSSetWindowAlpha,
+};
+
 // Chromium owns more top-level surfaces than the content frame. Restore/error
 // bubbles and download-history popovers use NativeWidgetMacNSWindow, while
 // transient overlays use NativeWidgetMacOverlayNSWindow. They are still browser
@@ -246,6 +260,7 @@ static void init(void) {
     // Every Chrome helper inherits the run id. Only the browser may create the
     // shared markers, or a renderer born later would re-hide the whole session.
     if (!isBrowserProcess()) return;
+    gClampWindowServerAlpha = YES;
     // Populate signalPath AND hiddenPath. Must go through initPaths(), not a
     // bare snprintf: setting `initialized = YES` after filling only signalPath
     // would leave hiddenPath empty forever (initPaths early-returns once the
