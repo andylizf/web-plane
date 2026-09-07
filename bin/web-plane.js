@@ -115,7 +115,7 @@ Blocking UI:
 Integration (drive with agent-browser):
   agent-browser <args...> Run web-plane's pinned agent-browser dependency. Use
                           this for a manual CDP connection; no separate install.
-  attach [--as <lane>] <url>
+  attach [--as <lane>] [--no-webauthn] <url>
                           One step: start/reuse a hidden session, open <url> in a
                           labelled tab, and connect an isolated agent-browser
                           session. Preferred over doing cdp + connect by hand.
