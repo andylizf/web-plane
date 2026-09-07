@@ -218,11 +218,11 @@ commands concurrently. web-plane `lane`, `attach`, and crash-recovery calls that
 drive one profile queue for a critical section: activate that lane's target,
 check Chrome-owned UI, execute the command, and check the UI again. Activation
 changes which tab and window Chrome treats as active, and native UI is tied to
-that active target, so those steps cannot interleave safely. `attach` and crash
-recovery use the same lock
-while connecting, creating or selecting a tab, navigating, and waiting for
-readiness. A long command such as `wait 30s` therefore holds the critical
-section for its own duration. Other profiles, page scripts, page network work,
+that active target, so those steps cannot interleave safely. `attach` holds the
+profile lock while connecting, creating or selecting a tab, and navigating. It
+releases the lock before observing readiness. Crash recovery and ordinary lane
+commands retain the lock through their commands, so a lane command such as
+`wait 30s` holds the critical section for its own duration. Other profiles, page scripts, page network work,
 and local `netlog` reads continue. An ordinary lane command waits up to 30
 seconds before returning `LANE_BUSY`; attach and recovery use the same default
 timeout but report their own reserve/recovery failure. The reaper waits one
@@ -258,9 +258,13 @@ separate, earlier pressure valve: Chrome may deactivate a background tab and
 reload it on its next access, but the lane and target remain until they are
 explicitly closed or reach the hard idle timeout.
 
-`attach`, `open`, `goto`, and `navigate` wait for network idle for up to 15
-seconds by default. Override that with `--wait-for load`, `--wait-for
-domcontentloaded`, `--wait-for <selector>`, `--timeout <ms>`, or `--no-wait`.
+`attach` waits for `load` for up to 15 seconds by default, so pages with ongoing
+network requests can attach. Lane `open`, `goto`, and `navigate` continue to
+default to network idle. Choose a readiness condition with `--wait-for load`,
+`--wait-for domcontentloaded`, `--wait-for networkidle`, or `--wait-for <selector>`;
+set its deadline with `--timeout <ms>`, or skip it with `--no-wait`.
+A failed attach navigation or readiness wait leaves the lane registered for
+inspection, retry, and `web-plane lane <lane> close`.
 Use `web-plane lane <lane> wait ...` for a readiness condition between actions.
 
 Lane input is intentionally safer than the upstream shorthand. After every
