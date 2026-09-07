@@ -1,17 +1,21 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { sendPanelRequest } from '../../lib/panel.js';
 import { makeTmpDir, removeTmpDir } from '../helpers/tmpdir.js';
 import {
   buildRuntime,
+  buildProbe,
   finishLaunchTransition,
   keepDisplayAwake,
   killQuietly,
   launchClone,
+  probe,
+  requireLiveDisplay,
   requireMacGui,
+  waitFor,
 } from '../helpers/browser.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -20,12 +24,15 @@ let home;
 let paths;
 let browser;
 let releaseDisplay;
+let probeBin;
 
-before(() => {
+before(async () => {
   requireMacGui();
   home = makeTmpDir('chrome-panel');
   paths = buildRuntime(home);
   releaseDisplay = keepDisplayAwake();
+  probeBin = buildProbe(home);
+  await requireLiveDisplay(probeBin);
 });
 
 after(() => {
@@ -134,4 +141,41 @@ test('real hidden Chrome download is saved through the native panel bridge', asy
   assert.equal(state.ok, true, JSON.stringify(state));
   assert.equal(state.panel, null, 'panel remained after the download completed');
   assert.equal(frontmostPid(), frontBefore, 'real Chrome Save flow changed the foreground app');
+});
+
+test('print preview remains transparent while its browser is hidden', async () => {
+  const beforeWindows = new Set(probe(probeBin, browser.pid).windows.map(w => w.number));
+  const page = await pageClient(browser.port);
+  const previewWindows = () => probe(probeBin, browser.pid).windows.filter(w =>
+    !beforeWindows.has(w.number) && w.w >= 400 && w.h >= 300);
+  const samples = [];
+  const observer = setInterval(() => samples.push(...previewWindows()), 20);
+  try {
+    await page.evaluate('setTimeout(() => window.print(), 100); "scheduled"');
+    const chrome = { pid: browser.pid, runId: browser.runId, managed: true };
+    let status;
+    const deadline = Date.now() + 10_000;
+    do {
+      status = await sendPanelRequest(chrome, { action: 'ui-status' }, { runDir: paths.runDir });
+      if (status.blockers?.some(b => b.kind === 'browser-modal')) break;
+      await sleep(100);
+    } while (Date.now() < deadline);
+    assert.ok(status.blockers?.some(b => b.kind === 'browser-modal'), JSON.stringify(status));
+    await sleep(2000);
+    clearInterval(observer);
+    assert.ok(samples.length, 'print preview created no observable window');
+    assert.ok(samples.every(w => w.alpha === 0), JSON.stringify(samples));
+
+    unlinkSync(browser.hiddenFlag);
+    process.kill(browser.pid, 'SIGUSR2');
+    const shown = await waitFor(previewWindows, windows => windows.some(w => w.alpha > 0 && w.inOnScreenList));
+    assert.equal(shown.ok, true, JSON.stringify(shown.last));
+    writeFileSync(browser.hiddenFlag, '');
+    process.kill(browser.pid, 'SIGUSR1');
+    const hidden = await waitFor(previewWindows, windows => windows.length && windows.every(w => w.alpha === 0));
+    assert.equal(hidden.ok, true, JSON.stringify(hidden.last));
+  } finally {
+    clearInterval(observer);
+    page.close();
+  }
 });
