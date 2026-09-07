@@ -141,7 +141,8 @@ values (including explicit empty strings), checked state, and selections; passwo
 length-only. Click/select still prove dispatch, not application state, and a server-side save
 can fail after the DOM action succeeds. Verify that resulting state before building on it.
 
-`attach` and lane navigation wait for network idle for 15 seconds by default. Override with
+`attach` defaults to waiting for load, and lane navigation defaults to network idle;
+both use a 15-second timeout. Override with
 `--wait-for <load|domcontentloaded|networkidle|selector>`, `--timeout <ms>`, or `--no-wait`.
 Use lane `wait` for readiness between actions rather than hand-tuned sleeps.
 
@@ -168,9 +169,9 @@ Lanes on the same profile keep independent pinned targets, and callers may submi
 concurrently. web-plane `lane`, `attach`, and crash-recovery calls that drive one profile queue
 for a critical section: target activation, native UI checks, and the command itself. Activation
 changes which tab and window Chrome treats as active, and Chrome-owned UI is tied to that active
-target, so those steps stay atomic. `attach` and crash recovery use the same lock while connecting,
-selecting or creating a tab, navigating, and waiting for readiness. A long command holds the lock
-for that command's duration. Other profiles, page scripts, page network work, and local `netlog`
+target, so those steps stay atomic. `attach` holds the lock while connecting, selecting or creating
+a tab, and navigating, then releases it before waiting for readiness. Crash recovery and ordinary
+lane commands retain the lock through their commands. Other profiles, page scripts, page network work, and local `netlog`
 reads continue. An ordinary lane command waits up to 30 seconds before returning `LANE_BUSY`;
 attach and recovery use the same default timeout but report their own reserve/recovery failure.
 The reaper waits one second and retries later.
@@ -316,6 +317,14 @@ profile existed to carry.
 Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
 for, what changed, the final URL. Never raw snapshots, never `.playwright-cli/` dumps.
 Pasting those back spends exactly what the subagent was there to save.
+
+Subagents in one session may share a scratch directory. Prefix every scratch script and
+result filename created for a lane with that lane, such as `reader1-extract.js` and
+`reader1-result.json`. Before reporting that a command returned another lane's data, include
+`location.href` in the same eval result as the data and compare it with the intended page.
+Page commands emit a `lane-source` JSON record on stderr with the lane, target ID, and URL
+observed before the command; preserve stderr beside captured stdout. This record does not
+describe the destination after navigation or certify the origin of a different file.
 
 What a subagent cannot do is hand over the keyboard. A login, a CAPTCHA, or an OS-level
 block needs the human, and the human is not reading that context. It should return a handoff

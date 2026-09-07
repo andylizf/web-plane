@@ -77,7 +77,8 @@ over CDP instead of downloading another browser.
    web-plane lane task1 click e4 --force                   # deliberate override
    ```
 
-   `attach` and lane navigation wait for network idle for 15 seconds by default.
+   `attach` defaults to waiting for load, and lane navigation defaults to network
+   idle; both use a 15-second timeout.
    Use `--wait-for <load|domcontentloaded|networkidle|selector>`, `--timeout
    <ms>`, or `--no-wait` when the page needs a different contract. `type` reads
    the same field back: ordinary values are printed, while passwords are compared
@@ -108,9 +109,9 @@ calls that drive one profile queue for a critical section: target activation,
 native UI checks, and the command itself. Activation changes which tab and
 window Chrome treats as active, and Chrome-owned UI is tied to that active
 target, so those steps stay atomic.
-`attach` and crash recovery use the same lock while connecting, selecting or
-creating a tab, navigating, and waiting for readiness. A long command holds the
-lock for that command's duration. Other profiles, page scripts, page network
+`attach` holds the lock while connecting, selecting or creating a tab, and
+navigating, then releases it before waiting for readiness. Crash recovery and
+ordinary lane commands retain the lock through their commands. Other profiles, page scripts, page network
 work, and local `netlog` reads continue. An ordinary lane command waits up to 30
 seconds before returning `LANE_BUSY`; attach and recovery use the same default
 timeout but report their own reserve/recovery failure. The reaper waits one
