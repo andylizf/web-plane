@@ -160,6 +160,12 @@ web-plane -s=research close
 
 All playwright-cli commands are supported. web-plane auto-injects `--headed`, `--profile`, and `--config` on `open`. An explicit `--profile <path>` is passed through to Playwright commands; web-plane's own `cdp`, `attach`, `status`, and `close` commands use the session-owned profile under `~/.web-plane/profiles/<session>`, selected with `-s=<name>`.
 
+`status` measures window visibility from macOS and reports
+`Frontmost app: yes|no|unknown` for the browser application. Query it after `show`
+to check whether Chrome is in front. `Window: visible` alone does not mean the
+application is frontmost; a frontmost application does not guarantee that every
+window is unobscured. An unavailable or locked display reports unknown.
+
 JavaScript `alert`, `confirm`, `prompt`, and `beforeunload` dialogs belong to
 Playwright and should be handled there. File uploads should use
 `setInputFiles`. The `panel` command is intentionally narrower: it controls only

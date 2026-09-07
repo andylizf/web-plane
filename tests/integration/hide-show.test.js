@@ -189,6 +189,26 @@ test('show puts a real window back on the screen', async () => {
   }
 });
 
+test('status distinguishes a visible browser from the foreground application', async () => {
+  const second = await launchClone({ paths, session: 'status-other' });
+  try {
+    await finishLaunchTransition(second);
+    const shown = runCli(['-s=status-other', 'show'], { home });
+    assert.equal(shown.code, 0, shown.all);
+    const otherStatus = runCli(['-s=status-other', 'status'], { home });
+    assert.match(otherStatus.stdout, /Frontmost app:\s+yes/, otherStatus.all);
+    const firstStatus = runCli([`-s=${SESSION}`, 'status'], { home });
+    assert.match(firstStatus.stdout, /Window:\s+visible/, firstStatus.all);
+    assert.match(firstStatus.stdout, /Frontmost app:\s+no/, firstStatus.all);
+    const raised = runCli([`-s=${SESSION}`, 'show'], { home });
+    assert.equal(raised.code, 0, raised.all);
+    const raisedStatus = runCli([`-s=${SESSION}`, 'status'], { home });
+    assert.match(raisedStatus.stdout, /Frontmost app:\s+yes/, raisedStatus.all);
+  } finally {
+    killQuietly(second.pid);
+  }
+});
+
 test('the show signal recovers an independently miniaturized window', async () => {
   // Normal hiding no longer miniaturizes. The signal still has to recover a
   // window Chrome or macOS put in the Dock independently. Tested at the signal

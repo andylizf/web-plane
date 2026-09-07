@@ -5,6 +5,7 @@ import {
   compositorBlindSpot,
   isParked,
   measuredWindowState,
+  measuredFrontmostApp,
   screenWindowAt,
 } from '../../lib/window.js';
 
@@ -14,6 +15,16 @@ import {
 // below has been a real, silently-successful failure at some point.
 
 const PID = 4242;
+
+test('frontmost application is measured, with unknown for unavailable or locked displays', () => {
+  const screen = { systemOnScreen: 4, screenLocked: false, frontmostPid: PID };
+  assert.equal(measuredFrontmostApp(PID, screen), true);
+  assert.equal(measuredFrontmostApp(PID + 1, screen), false);
+  assert.equal(measuredFrontmostApp(PID, null), null);
+  assert.equal(measuredFrontmostApp(PID, { ...screen, frontmostPid: null }), null);
+  assert.equal(measuredFrontmostApp(PID, { ...screen, screenLocked: true }), null);
+  assert.equal(measuredFrontmostApp(PID, { ...screen, systemOnScreen: 0 }), null);
+});
 
 /** What the window server reports for one window of ours. */
 function serverWindow(over = {}) {
