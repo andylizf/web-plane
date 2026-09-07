@@ -4,10 +4,22 @@ import assert from 'node:assert/strict';
 import {
   isCoveredClickFailure,
   laneHelp,
+  parseAttachOptions,
   parseSemanticFind,
   resolveSnapshotRole,
   translateLaneCommand,
 } from '../../lib/lane-commands.js';
+
+test('WebAuthn suppression is an explicit attach-only flag', () => {
+  assert.deepEqual(parseAttachOptions(['https://example.com']), {
+    args: ['https://example.com'], webauthnDisabled: false,
+  });
+  assert.deepEqual(parseAttachOptions(['--no-webauthn', 'https://example.com', '--no-wait']), {
+    args: ['https://example.com', '--no-wait'], webauthnDisabled: true,
+  });
+  assert.throws(() => parseAttachOptions(['--no-webauthn=false']), /is a flag/);
+  assert.throws(() => parseAttachOptions(['--no-webauthn', '--no-webauthn']), /only once/);
+});
 
 test('plain type replaces existing content while --append keeps upstream type semantics', () => {
   assert.deepEqual(translateLaneCommand(['type', 'e4', 'hello']), {

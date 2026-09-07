@@ -94,7 +94,9 @@ test('the injected hook keeps the launch window fully transparent', async () => 
   // Zero flash is the product's first promise, and the only proof that the dylib
   // loaded at all: without injection the window is composited immediately and
   // there is nothing stealthy about anything that follows.
-  const p = look();
+  // CDP can become ready while Chrome has only zero-sized placeholder windows.
+  // Check the first content window as soon as it exists; never wait for alpha.
+  const { last: p } = await waitFor(look, (sample) => Boolean(contentWindow(sample)));
   const w = contentWindow(p);
   assert.ok(w, `Chrome created no content-sized window:\n${describeWindows(p)}`);
   assert.equal(w.alpha, 0, `the launch window drew pixels:\n${JSON.stringify(w)}`);

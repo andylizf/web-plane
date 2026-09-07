@@ -200,7 +200,7 @@ attaches over CDP and drives it — `webdriver=false` and all — without a wind
 stealing focus.
 
 ```bash
-web-plane -s=work attach --as task1 https://chatgpt.com  # waits for network idle
+web-plane -s=work attach --as task1 https://chatgpt.com  # waits for load
 web-plane lane task1 snapshot
 web-plane lane task1 type e3 "replacement"                # replace, never append
 web-plane lane task1 type e3 " suffix" --append           # append explicitly
@@ -309,6 +309,16 @@ unparented Recover/download bubbles, without matching localized titles. The
 lane whose command exposed a tab-modal blocker is recorded, so other lanes in
 the same browser remain usable. The response lists the available choices;
 `show` is an explicit agent decision, not a side effect of detection.
+
+If a site's automatic security-key request blocks its alternate sign-in button,
+reattach that lane with `web-plane -s=work attach --as task1 --no-webauthn <url>`.
+This reloads the destination with WebAuthn intercepted by the lane monitor and
+no authenticators available. Security-key and passkey sign-in and registration
+cannot succeed in this mode; the site may wait for its request timeout before
+offering another method. No virtual credentials are created. The mode lasts
+across page navigation and lane recovery while the monitor is connected.
+Other lanes retain normal WebAuthn behavior. Reattach without `--no-webauthn`
+to restore normal behavior for this lane.
 
 A managed Workspace sign-in can make Chrome create another inner profile inside
 one `-s` user-data directory. Every managed launch explicitly selects `Default`;
