@@ -131,3 +131,32 @@ test('an attach readiness wait does not hold the sibling profile lock', async ()
   assert.equal(finished, false, 'sibling command was blocked until attach finished waiting');
   assert.notEqual((await waiting).code, 0);
 });
+
+test('concurrent lane results carry the matching live source without changing JSON stdout', async () => {
+  const names = [`${lane}a`, `${lane}b`];
+  const urls = names.map(name => `${url}${name}`);
+  for (let i = 0; i < names.length; i++) {
+    const attached = await cli([`-s=${session}`, 'attach', '--as', names[i], urls[i]]);
+    assert.equal(attached.code, 0, attached.stderr);
+  }
+  for (let round = 0; round < 10; round++) {
+    const results = await Promise.all(names.map(name => cli(['lane', name, 'eval', 'location.href', '--json'])));
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      assert.equal(result.code, 0, result.stderr);
+      const value = JSON.parse(result.stdout);
+      assert.equal(value.data.result, urls[i], result.stdout);
+      const source = result.stderr.split('\n').filter(Boolean).map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      }).find(record => record?.type === 'lane-source');
+      assert.deepEqual(source, {
+        type: 'lane-source', lane: names[i], targetId: state(names[i]).targetId,
+        url: urls[i], phase: 'before-command',
+      });
+    }
+  }
+  for (const name of names) {
+    const closed = await cli(['lane', name, 'close']);
+    assert.equal(closed.code, 0, closed.stderr);
+  }
+});
