@@ -121,6 +121,12 @@ test('the agent-browser proxy uses the packaged dependency instead of PATH', () 
   assert.equal(r.stdout.trim(), 'agent-browser 0.34.0');
 });
 
+test('an unbound agent-browser command cannot launch a temporary browser', () => {
+  const r = runCli(['agent-browser', '--session', 'unbound', 'open', 'about:blank'], { home });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /requires a connected lane or an explicit --cdp endpoint/);
+});
+
 test('custom commands reject --profile instead of ignoring it or reading it as a URL', () => {
   for (const args of [
     ['--profile', '/some/dir', 'cdp'],

@@ -361,6 +361,10 @@ For a manual connection, run `web-plane -s=work cdp` and use the exact
 prints. Both flags matter: `--session` isolates the daemon and `--pin-tab`
 prevents it from adopting another session's target. The wrapper selects
 web-plane's pinned dependency even if an older `agent-browser` exists on PATH.
+Pass `--cdp <port>` on subsequent manual driver commands. Lane commands supply
+their saved endpoint automatically. Calls without either an endpoint or a lane
+mapping are refused, so the dependency cannot launch an unrelated temporary
+Chrome when a connection disappears.
 
 web-plane keeps `show`/`hide`/`status`/`close`; agent-browser owns page
 operations. The CDP port is auto-assigned — read it from `cdp` output rather than

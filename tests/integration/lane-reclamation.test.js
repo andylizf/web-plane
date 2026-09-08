@@ -332,3 +332,18 @@ test('reaping the last lane preserves an unowned page in the same browser', asyn
     assert.equal(closed.code, 0, closed.all);
   }
 });
+
+test('a restarted lane driver reconnects to its owned Chrome', async () => {
+  const name = `drv${process.pid}`;
+  const state = attach(name, '/clean');
+  const pid = browserPid();
+  const disconnected = cli(['agent-browser', '--session', name, '--cdp', String(state.port), 'close']);
+  assert.equal(disconnected.code, 0, disconnected.all);
+  assert.equal(processIsAlive(pid), true, 'disconnecting the driver closed shared Chrome');
+  laneCommand(name, 'snapshot');
+  assert.equal(browserPid(), pid);
+  assert.equal(laneState(name).targetId, state.targetId);
+  assert.equal(await targetExists(state), true);
+  laneCommand(name, 'close');
+  assert.equal(await targetExists(state), false);
+});
