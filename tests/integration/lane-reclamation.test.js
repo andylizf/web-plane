@@ -10,6 +10,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -274,9 +276,19 @@ test('hard idle timeout closes abandoned lanes regardless of page state', async 
 
   const visible = `vis${process.pid}`;
   const visibleState = attach(visible, '/clean');
-  const visiblePid = browserPid();
-  const shown = cli([`-s=${session}`, 'show']);
-  assert.equal(shown.code, 0, shown.all);
+  // Showing a window can exceed this fixture's 2.5-second lease on CI. Hold
+  // the existing profile lock until the visible-page precondition is ready.
+  const profileKey = createHash('sha256').update(session).digest('hex');
+  const setupLock = join(runtime, 'run', `.profile-command-${profileKey}.lock`);
+  writeFileSync(setupLock, JSON.stringify({ pid: process.pid }), { flag: 'wx', mode: 0o600 });
+  let visiblePid;
+  try {
+    visiblePid = browserPid();
+    const shown = cli([`-s=${session}`, 'show']);
+    assert.equal(shown.code, 0, shown.all);
+  } finally {
+    unlinkSync(setupLock);
+  }
   const visibleGone = await waitForLaneGone(visible, visibleState);
   assert.equal(visibleGone.ok, true, 'visible lane bypassed the hard idle timeout');
   await waitForBrowserGone(visiblePid, visibleState.port);
