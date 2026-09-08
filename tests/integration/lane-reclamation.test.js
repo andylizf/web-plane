@@ -139,6 +139,7 @@ async function waitForLaneGone(lane, state, timeoutMs = 10_000) {
     ) return { ok: true, last };
     await sleep(150);
   }
+  record('lane-cleanup-timeout', 'failed', { lane, last, events: sessionEvents() });
   return { ok: false, last };
 }
 
