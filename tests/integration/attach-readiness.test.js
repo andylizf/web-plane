@@ -73,6 +73,35 @@ test('attach accepts a loaded page with continuous network requests', async () =
   assert.notEqual(idle.code, 0, 'fixture must not reach network idle');
 });
 
+test('concurrent launch entry points share one Chrome profile instance', async () => {
+  const shared = `${session}p`;
+  try {
+    const results = await Promise.all([
+      cli([`-s=${shared}`, 'cdp']),
+      cli([`-s=${shared}`, 'cdp']),
+      cli([`-s=${shared}`, 'attach', '--as', `${lane}p`, url]),
+    ]);
+    for (const result of results) assert.equal(result.code, 0, result.stdout + result.stderr);
+    const ports = results.slice(0, 2).map(result => result.stdout.match(/CDP port:\s+(\d+)/)?.[1]);
+    assert.ok(ports[0]);
+    assert.equal(ports[0], ports[1]);
+    // Playwright open deliberately restarts its session, so a concurrent cdp
+    // may observe either endpoint. Both commands must leave one live browser.
+    const restarted = await Promise.all([
+      cli([`-s=${shared}`, 'open', url]),
+      cli([`-s=${shared}`, 'cdp']),
+    ]);
+    for (const result of restarted) assert.equal(result.code, 0, result.stdout + result.stderr);
+    const { stdout } = await execute('/bin/ps', ['-axo', 'command=']);
+    const binary = join(runtime, 'Chrome.app', 'Contents', 'MacOS', 'Google Chrome');
+    const profile = `--user-data-dir=${join(runtime, 'profiles', shared)}`;
+    const instances = stdout.split('\n').filter(line => line.startsWith(`${binary} `) && line.includes(profile));
+    assert.equal(instances.length, 1, instances.join('\n'));
+  } finally {
+    await cli([`-s=${shared}`, 'close']);
+  }
+});
+
 test('explicit wait failure preserves the tab, driver, and monitor for retry or close', async () => {
   const failedLane = `${lane}f`;
   const args = [`-s=${session}`, 'attach', '--as', failedLane, url];

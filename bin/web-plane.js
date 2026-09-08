@@ -253,5 +253,14 @@ if (command === 'install') {
 } else {
   // Proxy to playwright-cli
   const { runCommand } = await import('../lib/commands.js');
-  runCommand(command, globalArgs, commandArgs);
+  const { acquireProfileCommandLock } = await import('../lib/profile-command-lock.js');
+  const releaseLock = command === 'open'
+    ? await acquireProfileCommandLock(parseSessionFlag(rawArgs) || 'default') : null;
+  let status;
+  try {
+    status = runCommand(command, globalArgs, commandArgs);
+  } finally {
+    releaseLock?.();
+  }
+  process.exit(status);
 }

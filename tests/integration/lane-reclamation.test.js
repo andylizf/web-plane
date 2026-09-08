@@ -1,6 +1,7 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import {
   appendFileSync,
@@ -9,6 +10,8 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
+  writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -16,12 +19,13 @@ import { createInterface } from 'node:readline';
 import { runCli } from '../helpers/cli.js';
 import { requireMacGui } from '../helpers/browser.js';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
+import { CdpConnection } from '../../lib/cdp-client.js';
 
 const home = makeTmpDir('lane-reclamation');
 const runtime = join(home, '.web-plane');
 const socketDir = join(REPO_ROOT, 'tmp', `q${process.pid}`);
 const session = `qp${process.pid}`;
-const ttlMs = 2_500;
+const ttlMs = 60_000;
 const intervalMs = 300;
 const logDir = join(REPO_ROOT, 'logs', 'lane-reclamation', 'integration');
 const resultLog = join(logDir, 'run.jsonl');
@@ -72,6 +76,18 @@ function sessionEvents() {
   return readFileSync(path, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
 }
 
+function expireLane(lane) {
+  // Finish page setup before advancing its persisted lease past the deadline.
+  // A short real-time lease can expire during unrelated CI setup work.
+  const key = createHash('sha256').update(lane).digest('hex');
+  const path = join(runtime, 'lanes', `${key}.json`);
+  const state = JSON.parse(readFileSync(path, 'utf8'));
+  state.lastCommandAt = new Date(Date.now() - ttlMs - 1_000).toISOString();
+  const staged = `${path}.expiry`;
+  writeFileSync(staged, JSON.stringify(state), { flag: 'wx', mode: 0o600 });
+  renameSync(staged, path);
+}
+
 function agentBrowserPid(lane) {
   try {
     return Number(readFileSync(join(socketDir, `${lane}.pid`), 'utf8').trim());
@@ -87,6 +103,23 @@ function processIsAlive(pid) {
     return true;
   } catch (error) {
     return error.code === 'EPERM';
+  }
+}
+
+function browserPid() {
+  const result = cli([`-s=${session}`, 'status']);
+  assert.equal(result.code, 0, result.all);
+  const pid = Number(result.stdout.match(/Chrome PID:\s+(\d+)/)?.[1]);
+  assert.ok(pid > 1, result.all);
+  return pid;
+}
+
+async function waitForBrowserGone(pid, port) {
+  const deadline = Date.now() + 10_000;
+  while (processIsAlive(pid) && Date.now() < deadline) await sleep(100);
+  if (processIsAlive(pid)) {
+    const targets = await fetch(`http://127.0.0.1:${port}/json/list`).then(r => r.json()).catch(() => null);
+    assert.fail(`empty Chrome ${pid} stayed resident: ${JSON.stringify({ targets, events: sessionEvents() })}`);
   }
 }
 
@@ -108,15 +141,17 @@ async function waitForLaneGone(lane, state, timeoutMs = 10_000) {
       target: await targetExists(state),
       daemon: processIsAlive(state.daemonPid),
       daemonSidecar: existsSync(join(socketDir, `${lane}.pid`)),
+      monitor: processIsAlive(state.monitorPid),
     };
     if (
       last.mapping === null &&
       last.target === false &&
       last.daemon === false &&
-      last.daemonSidecar === false
+      last.daemonSidecar === false && last.monitor === false
     ) return { ok: true, last };
     await sleep(150);
   }
+  record('lane-cleanup-timeout', 'failed', { lane, last, events: sessionEvents() });
   return { ok: false, last };
 }
 
@@ -134,7 +169,9 @@ function attach(lane, path, ...extra) {
   assert.ok(state?.targetId && state.port > 0, `missing state for ${lane}`);
   const daemonPid = agentBrowserPid(lane);
   assert.ok(Number.isInteger(daemonPid) && daemonPid > 1, `missing daemon pid for ${lane}`);
-  return { ...state, daemonPid };
+  const key = createHash('sha256').update(lane).digest('hex');
+  const monitorPid = JSON.parse(readFileSync(join(runtime, 'run', `.lane-monitor-${key}.json`), 'utf8')).pid;
+  return { ...state, daemonPid, monitorPid };
 }
 
 function laneCommand(lane, ...args) {
@@ -186,23 +223,33 @@ after(async () => {
 test('hard idle timeout closes abandoned lanes regardless of page state', async () => {
   const clean = `cln${process.pid}`;
   const cleanState = attach(clean, '/clean');
+  const initialTargets = await fetch(`http://127.0.0.1:${cleanState.port}/json/list`).then(r => r.json());
+  assert.deepEqual(initialTargets.filter(target => target.type === 'page').map(target => target.id),
+    [cleanState.targetId], 'fresh attach left a startup page outside its lane');
   const sibling = `sib${process.pid}`;
   const siblingState = attach(sibling, '/clean');
+  const firstBrowserPid = browserPid();
+  expireLane(clean);
   const cleanGone = await waitForLaneGone(clean, cleanState);
   assert.equal(cleanGone.ok, true, `clean lane survived: ${JSON.stringify(cleanGone.last)}`);
   assert.equal(await targetExists(siblingState), true, 'closing one lane closed its sibling tab');
   assert.equal(processIsAlive(siblingState.daemonPid), true, 'closing one lane stopped its sibling driver');
+  assert.equal(processIsAlive(firstBrowserPid), true, 'closing one lane quit a shared browser');
   laneCommand(sibling, 'close');
   const siblingGone = await waitForLaneGone(sibling, siblingState);
   assert.equal(siblingGone.ok, true, 'explicit lane close left its driver running');
+  await waitForBrowserGone(firstBrowserPid, siblingState.port);
   record('lane-and-driver-hard-timeout', 'passed', { siblingSurvived: true });
 
   const renewed = `cmd${process.pid}`;
   const renewedState = attach(renewed, '/clean');
-  await sleep(ttlMs - 700);
+  assert.notEqual(browserPid(), firstBrowserPid, 'reattach did not launch a fresh browser');
+  const previousCommandAt = laneState(renewed).lastCommandAt;
   laneCommand(renewed, 'snapshot');
+  assert.ok(Date.parse(laneState(renewed).lastCommandAt) > Date.parse(previousCommandAt));
   await sleep(1_000);
   assert.ok(laneState(renewed), 'a recent command did not refresh the lease');
+  expireLane(renewed);
   const renewedGone = await waitForLaneGone(renewed, renewedState);
   assert.equal(renewedGone.ok, true, 'renewed lane did not close after the refreshed lease expired');
   record('command-renews-lease', 'passed');
@@ -211,18 +258,21 @@ test('hard idle timeout closes abandoned lanes regardless of page state', async 
   const dirtyState = attach(dirty, '/dirty');
   laneCommand(dirty, 'type', 'input', 'unsubmitted draft');
   laneCommand(dirty, 'click', 'button');
+  expireLane(dirty);
   const dirtyGone = await waitForLaneGone(dirty, dirtyState);
   assert.equal(dirtyGone.ok, true, 'unsubmitted input bypassed the hard idle timeout');
   record('unsubmitted-input-hard-timeout', 'passed');
 
   const media = `med${process.pid}`;
   const mediaState = attach(media, '/media');
+  expireLane(media);
   const mediaGone = await waitForLaneGone(media, mediaState);
   assert.equal(mediaGone.ok, true, 'playing media bypassed the hard idle timeout');
   record('playing-media-hard-timeout', 'passed');
 
   const slow = `net${process.pid}`;
   const slowState = attach(slow, '/slow', '--no-wait');
+  expireLane(slow);
   const slowGone = await waitForLaneGone(slow, slowState);
   assert.equal(slowGone.ok, true, 'an active request bypassed the hard idle timeout');
   const released = await fetch(`${origin}/release`);
@@ -232,6 +282,7 @@ test('hard idle timeout closes abandoned lanes regardless of page state', async 
   const guarded = `bun${process.pid}`;
   const guardedState = attach(guarded, '/beforeunload');
   laneCommand(guarded, 'click', 'button');
+  expireLane(guarded);
   const guardedGone = await waitForLaneGone(guarded, guardedState);
   const guardedEvents = sessionEvents().filter((event) => event.lane === guarded);
   assert.equal(guardedGone.ok, true, 'beforeunload bypassed the hard idle timeout');
@@ -245,16 +296,15 @@ test('hard idle timeout closes abandoned lanes regardless of page state', async 
 
   const visible = `vis${process.pid}`;
   const visibleState = attach(visible, '/clean');
+  const visiblePid = browserPid();
   const shown = cli([`-s=${session}`, 'show']);
   assert.equal(shown.code, 0, shown.all);
+  expireLane(visible);
   const visibleGone = await waitForLaneGone(visible, visibleState);
   assert.equal(visibleGone.ok, true, 'visible lane bypassed the hard idle timeout');
-  const hidden = cli([`-s=${session}`, 'hide']);
-  assert.equal(hidden.code, 0, hidden.all);
+  await waitForBrowserGone(visiblePid, visibleState.port);
   record('visible-hard-timeout', 'passed');
 
-  const closed = cli([`-s=${session}`, 'close']);
-  assert.equal(closed.code, 0, closed.all);
   const localState = JSON.parse(readFileSync(
     join(runtime, 'profiles', session, 'Local State'),
     'utf8'
@@ -262,4 +312,38 @@ test('hard idle timeout closes abandoned lanes regardless of page state', async 
   assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
   assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
   record('maximum-memory-saver-persisted-after-chrome-exit', 'passed');
+});
+
+test('reaping the last lane preserves an unowned page in the same browser', async () => {
+  const name = `own${process.pid}`;
+  const state = attach(name, '/clean');
+  const pid = browserPid();
+  const connection = await CdpConnection.connect(state.port);
+  try {
+    const { targetId } = await connection.send('Target.createTarget', { url: `${origin}/clean` });
+    expireLane(name);
+    const gone = await waitForLaneGone(name, state);
+    assert.equal(gone.ok, true, JSON.stringify(gone.last));
+    assert.equal(processIsAlive(pid), true, 'reaping a lane quit an unowned page');
+    assert.equal(await targetExists({ port: state.port, targetId }), true);
+  } finally {
+    connection.close();
+    const closed = cli([`-s=${session}`, 'close']);
+    assert.equal(closed.code, 0, closed.all);
+  }
+});
+
+test('a restarted lane driver reconnects to its owned Chrome', async () => {
+  const name = `drv${process.pid}`;
+  const state = attach(name, '/clean');
+  const pid = browserPid();
+  const disconnected = cli(['agent-browser', '--session', name, '--cdp', String(state.port), 'close']);
+  assert.equal(disconnected.code, 0, disconnected.all);
+  assert.equal(processIsAlive(pid), true, 'disconnecting the driver closed shared Chrome');
+  laneCommand(name, 'snapshot');
+  assert.equal(browserPid(), pid);
+  assert.equal(laneState(name).targetId, state.targetId);
+  assert.equal(await targetExists(state), true);
+  laneCommand(name, 'close');
+  assert.equal(await targetExists(state), false);
 });

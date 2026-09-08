@@ -121,6 +121,30 @@ test('the agent-browser proxy uses the packaged dependency instead of PATH', () 
   assert.equal(r.stdout.trim(), 'agent-browser 0.34.0');
 });
 
+test('an unbound agent-browser command cannot launch a temporary browser', () => {
+  const r = runCli(['agent-browser', '--session', 'unbound', 'open', 'about:blank'], { home });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /requires a connected lane or an explicit --cdp endpoint/);
+});
+
+test('a lane keeps its CDP endpoint when page arguments contain connect', () => {
+  const runtime = join(home, 'driver-runtime');
+  const lane = 'bound-driver';
+  const dir = join(runtime, 'lanes');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${createHash('sha256').update(lane).digest('hex')}.json`), JSON.stringify({
+    version: 2, lane, session: 'profile', port: 54321, targetId: 'owned-tab',
+  }));
+  const driver = join(home, 'capture-driver');
+  writeFileSync(driver, '#!/usr/bin/env node\nconsole.log(JSON.stringify(process.argv.slice(2)));\n');
+  chmodSync(driver, 0o755);
+  const r = runCli(['agent-browser', '--session', lane, 'fill', 'connect', 'text'], {
+    home, env: { WEB_PLANE_RUNTIME_DIR: runtime, WEB_PLANE_TEST_AGENT_BROWSER_BIN: driver },
+  });
+  assert.equal(r.code, 0, r.all);
+  assert.deepEqual(JSON.parse(r.stdout), ['--cdp', '54321', '--session', lane, 'fill', 'connect', 'text']);
+});
+
 test('custom commands reject --profile instead of ignoring it or reading it as a URL', () => {
   for (const args of [
     ['--profile', '/some/dir', 'cdp'],

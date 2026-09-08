@@ -38,9 +38,9 @@ before(async () => {
 
   const connected = cli(['agent-browser', '--session', lane, '--no-pin-tab', 'connect', String(chrome.port)]);
   assert.equal(connected.code, 0, connected.all);
-  const opened = cli(['agent-browser', '--session', lane, '--pin-tab', 'tab', 'new', '--label', lane]);
+  const opened = cli(['agent-browser', '--session', lane, '--cdp', String(chrome.port), '--pin-tab', 'tab', 'new', '--label', lane]);
   assert.equal(opened.code, 0, opened.all);
-  const listed = cli(['agent-browser', '--session', lane, 'tab', 'list', '--json']);
+  const listed = cli(['agent-browser', '--session', lane, '--cdp', String(chrome.port), 'tab', 'list', '--json']);
   assert.equal(listed.code, 0, listed.all);
   targetId = JSON.parse(listed.stdout).data.tabs.find((tab) => tab.active)?.targetId;
   assert.ok(targetId, listed.stdout);

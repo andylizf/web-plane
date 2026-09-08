@@ -239,8 +239,10 @@ governs browser-instance ownership and forwards later launches for the same
 
 The task that attaches a lane owns its lifecycle. Close the lane on every task
 exit path, including errors and cooperative cancellation, before returning.
-Closing a lane stops its driver but never closes sibling tabs or the shared
-profile. If a page deliberately outlives the task, leave it open without a
+Closing a lane stops its driver and preserves sibling tabs. Once the final
+lane closes, Chrome exits if no other pages remain.
+Profiles stay on disk and the next attach starts Chrome again.
+If a page deliberately outlives the task, leave it open without a
 special keep state; the hard idle timeout below still applies.
 
 Every attached lane starts a detached monitor that enters forced reclamation 24
@@ -248,7 +250,10 @@ hours after its last lane command. Once it acquires the same-profile critical
 section and confirms the target mapping, it directly closes the target even if
 it is visible or has unsaved input, media, `beforeunload`, a request, or a
 download. It then stops that lane's agent-browser daemon, removes the lane
-mapping, and exits. Lock contention or a failed close/driver cleanup is logged
+mapping, and exits. Chrome also exits when its last page closes. Startup-only
+New Tab and blank pages are removed during attach, so they cannot keep an
+otherwise empty browser resident. Restored real pages and reused browsers are
+preserved. Lock contention or a failed close/driver cleanup is logged
 and retried rather than reported as success. Any same-profile critical-section
 holder can delay an attempt; a command through this lane renews its deadline.
 Every close, retry, or failed cleanup is appended
@@ -356,6 +361,10 @@ For a manual connection, run `web-plane -s=work cdp` and use the exact
 prints. Both flags matter: `--session` isolates the daemon and `--pin-tab`
 prevents it from adopting another session's target. The wrapper selects
 web-plane's pinned dependency even if an older `agent-browser` exists on PATH.
+Pass `--cdp <port>` on subsequent manual driver commands. Lane commands supply
+their saved endpoint automatically. Calls without either an endpoint or a lane
+mapping are refused, so the dependency cannot launch an unrelated temporary
+Chrome when a connection disappears.
 
 web-plane keeps `show`/`hide`/`status`/`close`; agent-browser owns page
 operations. The CDP port is auto-assigned — read it from `cdp` output rather than
