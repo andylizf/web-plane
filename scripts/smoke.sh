@@ -15,7 +15,12 @@ set -euo pipefail
 SESSION="${1:-smoke-$$}"
 WP="${WEB_PLANE:-web-plane}"
 
-cleanup() { $WP -s="$SESSION" close >/dev/null 2>&1 || true; }
+cleanup() {
+  if [ -n "${PORT:-}" ]; then
+    $WP agent-browser --session "$SESSION" --cdp "$PORT" close >/dev/null 2>&1 || true
+  fi
+  $WP -s="$SESSION" close >/dev/null 2>&1 || true
+}
 trap cleanup EXIT
 
 echo "-> start hidden session + expose CDP"
@@ -27,18 +32,18 @@ PORT="$(echo "$OUT" | awk '/CDP port:/ {print $3}')"
 echo "-> web-plane agent-browser --session $SESSION --pin-tab connect $PORT"
 $WP agent-browser --session "$SESSION" --pin-tab connect "$PORT" >/dev/null
 
-WD="$($WP agent-browser --session "$SESSION" eval 'navigator.webdriver' | tail -1)"
+WD="$($WP agent-browser --session "$SESSION" --cdp "$PORT" eval 'navigator.webdriver' | tail -1)"
 echo "   navigator.webdriver = $WD"
 [ "$WD" = "false" ] || { echo "FAIL: expected webdriver=false (stealth broken / not attached)"; exit 1; }
 
-$WP agent-browser --session "$SESSION" goto https://example.com >/dev/null
-TITLE="$($WP agent-browser --session "$SESSION" eval 'document.title' | tail -1)"
+$WP agent-browser --session "$SESSION" --cdp "$PORT" goto https://example.com >/dev/null
+TITLE="$($WP agent-browser --session "$SESSION" --cdp "$PORT" eval 'document.title' | tail -1)"
 echo "   title = $TITLE"
 echo "$TITLE" | grep -q "Example Domain" || { echo "FAIL: navigate/eval broken"; exit 1; }
 
 echo "-> hide, then confirm still drivable"
 $WP -s="$SESSION" hide >/dev/null
-R="$($WP agent-browser --session "$SESSION" eval '6*7' | tail -1)"
+R="$($WP agent-browser --session "$SESSION" --cdp "$PORT" eval '6*7' | tail -1)"
 echo "   eval after hide = $R"
 [ "$R" = "42" ] || { echo "FAIL: eval broken after hide"; exit 1; }
 

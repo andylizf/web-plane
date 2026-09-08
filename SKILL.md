@@ -93,6 +93,10 @@ over CDP instead of downloading another browser.
 For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
 `web-plane agent-browser --session main --pin-tab connect <port>` command it
 prints. Do not omit either flag: they isolate the daemon and its target binding.
+Keep `--session main --pin-tab` and add `--cdp <port>` on every subsequent
+manual driver command. Normal lane
+commands supply their saved endpoint automatically; an unbound driver command
+is refused rather than launching a temporary Chrome.
 
 The manual agent-browser command above does not acquire web-plane's command lock;
 reserve it for solitary diagnostics, not shared-lane driving.
@@ -103,14 +107,18 @@ cleanup as soon as attach succeeds so `web-plane lane task1 close` runs before
 the task returns on success, error, or cooperative cancellation. It closes that
 tab and stops its agent-browser daemon. Use another lane when the task needs
 another page.
+Chrome exits when its final page closes. During attach, startup pages are
+removed only if Chrome was newly launched and all its existing pages were
+New Tab or blank pages. Restored real pages and reused browsers are preserved.
 Lanes sharing one profile keep independent pinned targets, and callers may
-submit commands concurrently. web-plane `lane`, `attach`, and crash-recovery
+submit commands concurrently. web-plane `lane`, `attach`, `cdp`, `open`, and crash-recovery
 calls that drive one profile queue for a critical section: target activation,
 native UI checks, and the command itself. Activation changes which tab and
 window Chrome treats as active, and Chrome-owned UI is tied to that active
 target, so those steps stay atomic.
-`attach` holds the lock while connecting, selecting or creating a tab, and
-navigating, then releases it before waiting for readiness. Crash recovery and
+`attach` holds the lock while resolving or launching Chrome, connecting,
+selecting or creating a tab, and navigating, then releases it before waiting
+for readiness. Crash recovery and
 ordinary lane commands retain the lock through their commands. Other profiles, page scripts, page network
 work, and local `netlog` reads continue. An ordinary lane command waits up to 30
 seconds before returning `LANE_BUSY`; attach and recovery use the same default
