@@ -79,13 +79,19 @@ test('concurrent launch entry points share one Chrome profile instance', async (
     const results = await Promise.all([
       cli([`-s=${shared}`, 'cdp']),
       cli([`-s=${shared}`, 'cdp']),
-      cli([`-s=${shared}`, 'open', url]),
       cli([`-s=${shared}`, 'attach', '--as', `${lane}p`, url]),
     ]);
     for (const result of results) assert.equal(result.code, 0, result.stdout + result.stderr);
     const ports = results.slice(0, 2).map(result => result.stdout.match(/CDP port:\s+(\d+)/)?.[1]);
     assert.ok(ports[0]);
     assert.equal(ports[0], ports[1]);
+    // Playwright open deliberately restarts its session, so a concurrent cdp
+    // may observe either endpoint. Both commands must leave one live browser.
+    const restarted = await Promise.all([
+      cli([`-s=${shared}`, 'open', url]),
+      cli([`-s=${shared}`, 'cdp']),
+    ]);
+    for (const result of restarted) assert.equal(result.code, 0, result.stdout + result.stderr);
     const { stdout } = await execute('/bin/ps', ['-axo', 'command=']);
     const binary = join(runtime, 'Chrome.app', 'Contents', 'MacOS', 'Google Chrome');
     const profile = `--user-data-dir=${join(runtime, 'profiles', shared)}`;
