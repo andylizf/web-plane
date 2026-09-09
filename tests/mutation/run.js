@@ -110,17 +110,16 @@ const MUTATIONS = [
     ],
   },
   {
-    name: 'verifier-mistakes-a-sleeping-display-for-a-dock',
+    name: 'verifier-judges-alpha-on-a-sleeping-display',
     describes:
-      'removes the blind-spot guard: the verifier goes back to reading an empty on-screen ' +
-      'list as "this window is miniaturized", which it is for every window of every ' +
-      'application while the display sleeps',
+      'removes the blind-spot guard, so the verifier treats alpha from a sleeping ' +
+      'compositor as proof that a window is transparent',
     // A unit suite, not the integration one: the state this mutation is about
     // cannot be staged with a browser, because staging it means putting the
     // display to sleep — which locks the machine on any Mac with an immediate
     // lock delay, and would blind the integration suite's own assertions anyway.
     suite: 'tests/unit/window-verify.test.js',
-    expect: 'a sleeping display is not evidence that our window is in the Dock',
+    expect: 'alpha is left unjudged while nothing is being composited',
     edits: [
       {
         file: 'lib/window.js',
@@ -128,6 +127,17 @@ const MUTATIONS = [
         to: '  /* mutation: an idle compositor is read as a fact about this window */',
       },
     ],
+  },
+  {
+    name: 'verifier-omits-uncertain-visibility',
+    describes: 'drops the unknown result for normal opaque windows absent from the current compositor list',
+    suite: 'tests/unit/window-verify.test.js',
+    expect: 'normal opaque bounds absent from the compositor list leave visibility unknown',
+    edits: [{
+      file: 'lib/window.js',
+      from: '  if (real && real.alpha > 0 && !isParked(real) && !real.onScreen) {',
+      to: '  if (false) { /* mutation: omit uncertain visibility */',
+    }],
   },
   {
     name: 'hide-degrades-to-minimize',
