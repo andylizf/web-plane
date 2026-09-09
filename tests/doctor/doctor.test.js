@@ -7,6 +7,7 @@ import { makeRuntime, systemChromeVersion, SYSTEM_CHROME_APP } from '../helpers/
 import { runCli } from '../helpers/cli.js';
 import { existsSync } from 'fs';
 import { RUNTIME_VERSION } from '../../lib/config.js';
+import { spawnSync } from 'node:child_process';
 
 // `doctor` is the only thing standing between a degraded install and an agent
 // that thinks it is stealthy. Its failure mode is not crashing — it is printing
@@ -145,6 +146,39 @@ test('a clone behind system Chrome is reported as a warning, not a failure', () 
   assert.match(r.stdout, new RegExp(`1\\.0\\.0 — BEHIND system ${system.replace(/\./g, '\\.')}`));
   assert.match(r.stdout, /fix: web-plane install/);
 });
+
+test('launch preflight allows version drift while warning about it', () => {
+  const r = preflightOn('preflight-drift', { cloneVersion: '1.0.0' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr, /lags system Chrome/);
+  assert.match(r.stderr, /Stealth still works/);
+});
+
+for (const [name, opts] of [
+  ['runtime protocol mismatch', { runtimeVersion: '6' }],
+  ['missing Playwright patch', { browserTypePatch: false }],
+  ['missing clone', { clone: 'missing' }],
+  ['non-injectable clone', { clone: 'signed' }],
+  ['missing suppression dylib', { dylib: false }],
+  ['incompatible suppression dylib', { dylib: 'legacy' }],
+]) {
+  test(`launch preflight still rejects ${name} when the clone version lags`, () => {
+    const r = preflightOn(`preflight-${name}`, { cloneVersion: '1.0.0', ...opts });
+    assert.equal(r.status, 1, r.stderr);
+  });
+}
+
+function preflightOn(name, opts) {
+  const runtime = makeRuntime(join(root, name), opts);
+  return spawnSync(process.execPath, [
+    '--input-type=module', '--eval',
+    `import { warnIfDegraded } from ${JSON.stringify(new URL('../../lib/health.js', import.meta.url).href)};
+     process.exitCode = warnIfDegraded() ? 0 : 1;`,
+  ], {
+    encoding: 'utf8',
+    env: { ...process.env, WEB_PLANE_RUNTIME_DIR: runtime },
+  });
+}
 
 test('a clone AHEAD of system Chrome is not a defect and prescribes nothing', () => {
   // What a self-updating clone leaves behind, and the false alarm that started
