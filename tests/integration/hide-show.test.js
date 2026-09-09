@@ -454,7 +454,11 @@ test('show refuses a second live browser context and leaves every window hidden'
   // gone the same hidden browser must be showable and hideable again.
   const recovered = runCli([`-s=${SESSION}`, 'show'], { home });
   assert.equal(recovered.code, 0, `show did not recover after the split closed:\n${recovered.all}`);
-  assert.match(recovered.stdout, /Window shown/);
+  assert.match(recovered.stdout, /Window shown|Show requested .*visibility unknown/);
+  const visible = await waitFor(look,
+    (p) => p.windows.some((w) => w.w >= 400 && w.h >= 300 && w.alpha > 0 && w.inOnScreenList),
+    { timeoutMs: 4000 });
+  assert.ok(visible.ok, `no recovered content window was visible:\n${describeWindows(visible.last)}`);
   assert.equal(runCli([`-s=${SESSION}`, 'hide'], { home }).code, 0);
 });
 
