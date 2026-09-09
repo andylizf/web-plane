@@ -7,6 +7,7 @@ import {
   measuredWindowState,
   measuredFrontmostApp,
   screenWindowAt,
+  windowVisibilityUncertainty,
 } from '../../lib/window.js';
 
 // The verifier is the thing that decides whether `show` tells the truth, and it
@@ -88,27 +89,22 @@ test('status calls a window minimized only when Chrome and the window server agr
   assert.equal(measuredWindowState(wins, serverState([serverWindow()])), 'visible');
 });
 
-test('a miniaturized window is caught even though every other signal looks right', () => {
-  // This is the exact shape of the bug that `show` used to print "Window shown"
-  // over: Chrome says normal (it never saw the minimize — the dylib did it
-  // behind its back), and the window server still reports alpha 1 at the right
-  // bounds, because a miniaturized window keeps both. Only its absence from the
-  // on-screen list gives it away.
+test('normal opaque bounds absent from the compositor list leave visibility unknown', () => {
+  // A minimized window and a window on another Space can have these same
+  // readings. Neither a successful show nor a failed show is established.
   const problem = classifyWindow(
     1,
     chromeBounds(),
     serverState([...NOISE, serverWindow({ alpha: 1, onScreen: false })]),
     PID
   );
-  assert.ok(problem, 'expected a problem for a window in the Dock');
-  assert.match(problem, /miniaturized/);
-  assert.match(problem, /Dock/);
+  assert.equal(problem, null);
+  assert.match(windowVisibilityUncertainty(1, chromeBounds(),
+    serverState([...NOISE, serverWindow({ onScreen: false })])), /visibility unknown/);
 });
 
-test('a window in the Dock is caught even while a sibling window is on screen', () => {
-  // On-screen-ness used to be counted per pid, so this window passed on the
-  // strength of its sibling: any browser with a popup open had a minimized
-  // window read as visible. It is membership in the on-screen list, per window.
+test('a visible sibling does not establish whether an absent window is minimized', () => {
+  // A sibling provides no evidence about this window's visibility.
   const sibling = serverWindow({ number: 903, left: 900, top: 900, onScreen: true });
   const problem = classifyWindow(
     1,
@@ -116,7 +112,16 @@ test('a window in the Dock is caught even while a sibling window is on screen', 
     serverState([...NOISE, serverWindow({ onScreen: false }), sibling]),
     PID
   );
-  assert.match(problem, /miniaturized/);
+  assert.equal(problem, null);
+  assert.match(windowVisibilityUncertainty(1, chromeBounds(),
+    serverState([serverWindow({ onScreen: false }), sibling])), /visibility unknown/);
+});
+
+test('uncertainty does not suppress a transparent window failure or a visible result', () => {
+  const transparent = serverState([serverWindow({ onScreen: false, alpha: 0 })]);
+  assert.match(classifyWindow(1, chromeBounds(), transparent, PID), /fully transparent/);
+  assert.equal(windowVisibilityUncertainty(1, chromeBounds(), transparent), null);
+  assert.equal(windowVisibilityUncertainty(1, chromeBounds(), serverState([serverWindow()])), null);
 });
 
 test('an opaque-looking window that is actually transparent is caught', () => {
