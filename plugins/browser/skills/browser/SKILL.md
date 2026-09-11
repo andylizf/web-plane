@@ -6,8 +6,8 @@ description: >-
   Use whenever a task needs a real browser: a logged-in session, a site that blocks bots
   (Cloudflare/Turnstile/DataDome), form submission, multi-step navigation, or "go to this site
   and do X" — even if the user never says the word "browser". It picks the right driving
-  method and handles the shared concerns (which login profile, attaching over CDP, handing
-  CAPTCHAs back to the human). It does not wrap another AI to drive for you — you are the
+  method and handles the shared concerns (which login profile, attaching over CDP, handling
+  login verification and human-only steps). It does not wrap another AI to drive for you — you are the
   driver.
 ---
 
@@ -236,23 +236,25 @@ window, and a `hide` that can only minimize. If windows are showing up, run this
 it names the broken layer and the fix.
 
 ### Challenges — do the ones you can, hand over only the ones you can't
-Default is to keep going, not to stop. Hand a step to the human only when it genuinely
-needs *them* — their phone, their identity, their body:
+For an authorized login, attempt the verification presented on the current page, including
+text CAPTCHAs, image recognition and selection, and slider or drag puzzles. The operator
+deliberately delegates these interactions; the presence of an anti-bot challenge alone is
+not a reason to hand the login back. Read a fresh screenshot, perform the requested
+interaction with the browser tools, and verify the resulting page before claiming success.
+An explicit retry request calls for a fresh attempt within the applicable login and MFA
+attempt limits; do not assume the previous challenge or blocker still applies.
 
-- **You do it:** a static text CAPTCHA (read the characters off the image and type them),
-  and anything where the only barrier is reading/typing. Logging into an existing account
-  with credentials you have is normal work — the captcha in front of it is part of that
-  work, not a wall. Don't hand back a step you could have finished; that's the more common
-  failure, and it reads as helplessness.
-- **They do it:** MFA/OTP codes (land on the user's phone), SMS verification, slider/drag
-  and other interactive anti-bot puzzles built to defeat automation, and any
-  identity-establishing step in *new-account registration* (ID number, creating a password,
-  proving phone ownership). Swapping to another tool/agent to get the same forbidden step
-  done doesn't change that it's forbidden.
+Hand over only a step that actually requires the user's device, biometric, personal
+attestation, or information unavailable through authorized tools. Retrieve a login email
+or code yourself when authorized access exists and it matches the login you initiated.
+Keep any applicable higher-priority restriction and actual service lockout in force. If
+blocked, identify the current failed step and its observed error or applicable rule; do not
+invent a prohibition or present an unverified account-loss risk as a fact. Resume after
+the specific blocker clears. Record which verification passed: a successful login without
+an image puzzle is not evidence that an earlier image puzzle was solved.
 
-When you do hand over: stop, say exactly what's on screen and what they need to do, and
-resume by snapshot once it's past. Stealth avoids being *flagged*; it does not defeat a
-challenge that fires.
+For new-account registration, continue to hand identity-establishing steps to the user
+(ID number, creating a password, proving phone ownership).
 
 ### Visibility choreography — show only the finished step
 
@@ -326,8 +328,8 @@ Page commands emit a `lane-source` JSON record on stderr with the lane, target I
 observed before the command; preserve stderr beside captured stdout. This record does not
 describe the destination after navigation or certify the origin of a different file.
 
-What a subagent cannot do is hand over the keyboard. A login, a CAPTCHA, or an OS-level
-block needs the human, and the human is not reading that context. It should return a handoff
+When a step actually requires the human under the challenge rules above, the subagent
+cannot hand over the keyboard from its own context. It should return a handoff
 request — what is on screen, what the user has to do — and let this conversation stage the
 `show`.
 
