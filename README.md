@@ -260,8 +260,13 @@ Every close, retry, or failed cleanup is appended
 to the session JSONL log. `WEB_PLANE_LANE_TTL_MS` (default `86400000`) and
 `WEB_PLANE_REAP_INTERVAL_MS` (default `3600000`) override the two intervals for
 controlled testing. Normal task cleanup remains immediate: the hard timeout is
-only the abandoned-page backstop. If the detached monitor itself is killed, the
-backstop resumes only when the lane is attached or recovered again.
+only the abandoned-page backstop. A monitor dies with its browser, and Chrome's
+native session restore brings the lane's tab back without it, so every launch or
+reuse of a profile re-arms the monitor of each recorded lane whose tab still
+exists (the idle clock keeps its original start), forgets lanes whose tab is
+gone, and on a fresh launch closes restored tabs that no lane records. Look-alike
+tabs are left unbound, as in recovery. Each step is appended to the session
+JSONL log as a `lane-reconcile-*` event.
 
 `web-plane install` enables Chrome's Maximum Memory Saver for every existing
 managed profile, and each later profile launch enforces it again. That is a
