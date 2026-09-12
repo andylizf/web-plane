@@ -17,6 +17,7 @@ const MARKERS = {
   browserType: PATCH_MARKERS.find(({ file }) => file.endsWith('/browserType.js'))?.marker,
   crBrowser: PATCH_MARKERS.find(({ file }) => file.endsWith('/crBrowser.js'))?.marker,
   chromium: PATCH_MARKERS.find(({ file }) => file.endsWith('/chromium.js'))?.marker,
+  crPage: PATCH_MARKERS.find(({ file }) => file.endsWith('/crPage.js'))?.marker,
 };
 
 export const SYSTEM_CHROME_APP = '/Applications/Google Chrome.app';
@@ -38,6 +39,7 @@ export function systemChromeVersion() {
  * @param {boolean|'legacy'} opts.browserTypePatch  which DYLD-injection marker to write
  * @param {boolean} opts.crBrowserFile     create the second patched file at all
  * @param {boolean} opts.chromiumFile      create the native-session restore patch marker
+ * @param {boolean} opts.crPageFile        create the focus-emulation patch marker
  * @param {'adhoc'|'signed'|'missing'} opts.clone  how the cloned Chrome is signed
  * @param {boolean|'legacy'} opts.dylib    which suppression hook exists
  * @param {string|null} opts.cloneVersion  null = match system Chrome
@@ -49,6 +51,7 @@ export function makeRuntime(home, opts = {}) {
     browserTypePatch = true,
     crBrowserFile = true,
     chromiumFile = true,
+    crPageFile = true,
     clone = 'adhoc',
     dylib = true,
     cloneVersion = null,
@@ -95,6 +98,12 @@ export function makeRuntime(home, opts = {}) {
     writeFileSync(
       join(pwServer, 'chromium', 'chromium.js'),
       `// ${MARKERS.chromium}\nmodule.exports = {};\n`
+    );
+  }
+  if (crPageFile) {
+    writeFileSync(
+      join(pwServer, 'chromium', 'crPage.js'),
+      `// ${MARKERS.crPage}\nmodule.exports = {};\n`
     );
   }
 

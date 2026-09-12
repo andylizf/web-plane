@@ -268,11 +268,26 @@ gone, and on a fresh launch closes restored tabs that no lane records. Look-alik
 tabs are left unbound, as in recovery. Each step is appended to the session
 JSONL log as a `lane-reconcile-*` event.
 
+Idle lanes go hidden. Upstream Playwright enables DevTools focus emulation on
+every page, and Chromium implements that by counting the tab as captured: the
+page stays visible and renders at full frame rate however long it idles, and
+Memory Saver never sees it as inactive. web-plane's Playwright patch leaves that
+off (`WEB_PLANE_PLAYWRIGHT_FOCUS_EMULATION=1` restores upstream behaviour).
+Instead each lane monitor holds focus emulation while its lane is active and
+releases it `WEB_PLANE_LANE_FOCUS_IDLE_MS` (default `300000`, five minutes)
+after the last lane command, and the CLI holds it again for the duration of
+every command. An idle background tab therefore reports `hidden`, stops
+animation frames, and has its timers throttled by Chrome itself; the next
+command makes it visible again. The active tab of the hidden window stays
+visible to Chrome either way. The monitor logs `focus-held` and
+`focus-released` to the lane's event file.
+
 `web-plane install` enables Chrome's Maximum Memory Saver for every existing
-managed profile, and each later profile launch enforces it again. That is a
-separate, earlier pressure valve: Chrome may deactivate a background tab and
-reload it on its next access, but the lane and target remain until they are
-explicitly closed or reach the hard idle timeout.
+managed profile, and each later profile launch enforces it again. It cannot
+discard a lane's tab while a DevTools client is attached, which the drivers
+always are, so treat it as a safety net for pages opened outside lanes rather
+than as reclamation: the lane and target remain until they are explicitly
+closed or reach the hard idle timeout.
 
 `attach` waits for `load` for up to 15 seconds by default, so pages with ongoing
 network requests can attach. Lane `open`, `goto`, and `navigate` continue to
