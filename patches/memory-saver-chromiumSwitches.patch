@@ -1,0 +1,18 @@
+--- node_modules/playwright-core/lib/server/chromium/chromiumSwitches.js
++++ node_modules/playwright-core/lib/server/chromium/chromiumSwitches.js
+@@ -68,7 +68,14 @@
+   "--disable-dev-shm-usage",
+   "--disable-extensions",
+   "--disable-features=" + disabledFeatures(assistantMode).join(","),
+-  process.env.PLAYWRIGHT_LEGACY_SCREENSHOT ? "" : "--enable-features=CDPScreenshotNewSurface",
++  // web-plane: Chromium never discards a tab with a DevTools client attached, and
++  // every driven tab has one, so Memory Saver could not reclaim an idle lane.
++  // AllowDevtoolsConnectedDiscard lifts that rule; the lane monitor follows the
++  // replacement target. WEB_PLANE_MEMORY_SAVER_DISCARD=0 turns it back off.
++  "--enable-features=" + [
++    process.env.PLAYWRIGHT_LEGACY_SCREENSHOT ? "" : "CDPScreenshotNewSurface",
++    process.env.WEB_PLANE_MEMORY_SAVER_DISCARD === "0" ? "" : "AllowDevtoolsConnectedDiscard"
++  ].filter(Boolean).join(","),
+   "--allow-pre-commit-input",
+   "--disable-hang-monitor",
+   "--disable-ipc-flooding-protection",

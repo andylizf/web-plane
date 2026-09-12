@@ -1,0 +1,15 @@
+--- node_modules/playwright-core/lib/server/chromium/crPage.js
++++ node_modules/playwright-core/lib/server/chromium/crPage.js
+@@ -411,7 +411,11 @@
+     if (!this._page.isStorageStatePage) {
+       if (this._crPage._browserContext.needsPlaywrightBinding())
+         promises.push(this.exposePlaywrightBinding());
+-      if (this._isMainFrame())
++      // web-plane: focus emulation makes Chrome count the tab as captured, so
++      // every page stays visible and renders at full rate however long it idles.
++      // The lane monitor holds it only while the lane is active; set
++      // WEB_PLANE_PLAYWRIGHT_FOCUS_EMULATION=1 to restore upstream behaviour.
++      if (this._isMainFrame() && process.env.WEB_PLANE_PLAYWRIGHT_FOCUS_EMULATION === "1")
+         promises.push(this._client.send("Emulation.setFocusEmulationEnabled", { enabled: true }));
+       const options = this._crPage._browserContext._options;
+       if (options.bypassCSP)

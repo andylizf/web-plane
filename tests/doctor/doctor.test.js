@@ -39,7 +39,7 @@ test('a healthy install passes', () => {
   const r = doctorOn('healthy', {});
   assert.equal(r.code, 0, `doctor should pass on a healthy install:\n${r.all}`);
   assert.match(r.stdout, /✓ playwright patch/);
-  assert.match(r.stdout, /applied \(browserType\.js \+ crBrowser\.js \+ chromium\.js\)/);
+  assert.match(r.stdout, /applied \(browserType\.js \+ crBrowser\.js \+ chromium\.js \+ crPage\.js \+ chromiumSwitches\.js\)/);
   assert.match(r.stdout, /✓ runtime protocol/);
   assert.match(r.stdout, /✓ clone signature/);
   assert.match(r.stdout, /✓ suppression dylib/);
@@ -101,6 +101,20 @@ test('a runtime that still adds a synthetic startup tab is rejected', () => {
   const r = doctorOn('no-native-restore-patch', { chromiumFile: false });
   assert.equal(r.code, 1);
   assert.match(r.stdout, /chromium\.js \(file not found\)/);
+  assert.match(r.stdout, /fix: web-plane install/);
+});
+
+test('a runtime whose Playwright still enables focus emulation on every page is rejected', () => {
+  const r = doctorOn('no-focus-patch', { crPageFile: false });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /crPage\.js \(file not found\)/);
+  assert.match(r.stdout, /fix: web-plane install/);
+});
+
+test('a runtime whose Chrome cannot discard driven tabs is rejected', () => {
+  const r = doctorOn('no-discard-patch', { chromiumSwitchesFile: false });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /chromiumSwitches\.js \(file not found\)/);
   assert.match(r.stdout, /fix: web-plane install/);
 });
 

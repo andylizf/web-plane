@@ -191,9 +191,12 @@ launch or reuse of the profile re-arms monitors for recorded lanes whose tabs st
 clock keeps its original start), forgets lanes whose tab is gone, and on a fresh launch closes
 restored tabs no lane records. The backstop does not replace normal task cleanup.
 
-`web-plane install` enables Chrome Maximum Memory Saver for every existing managed profile, and
-each later launch enforces it again. Chrome may deactivate a background tab and reload the tab on
-next access; it does not close the lane or replace the hard idle timeout.
+A lane that has had no command for five minutes goes hidden: Chrome stops its animation frames
+and throttles its timers until the next command makes it visible again. About two hours after
+that, Chrome's Memory Saver may discard the tab as it would any background tab, unless text was
+typed into a form or audio is playing; the lane survives, the next command reloads the page
+from its URL, and anything the page only held in memory is gone. Neither closes the lane or
+replaces the hard idle timeout.
 
 An `eval` can return successfully while a promise or timer it started fails later. When a
 multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:

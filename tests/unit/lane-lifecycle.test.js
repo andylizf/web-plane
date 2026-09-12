@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-const { laneReapDecision, nextLaneSweepDelay } = await import(
+const { laneFocusDecision, laneReapDecision, nextLaneSweepDelay } = await import(
   `../../lib/lane-lifecycle.js?test=${Date.now()}`
 );
 
@@ -70,4 +70,39 @@ test('the monitor schedules at the lease deadline instead of one interval late',
     ttlMs: TTL,
     intervalMs: 60 * 60 * 1000,
   }), 25);
+});
+
+const FOCUS_IDLE = 5 * 60 * 1000;
+
+test('a lane commanded within the idle window keeps focus until the window ends', () => {
+  assert.deepEqual(
+    laneFocusDecision({
+      state: { lastCommandAt: new Date(NOW - 60_000).toISOString() },
+      nowMs: NOW,
+      idleMs: FOCUS_IDLE,
+    }),
+    { hold: true, releaseInMs: FOCUS_IDLE - 60_000 }
+  );
+});
+
+test('a lane idle past the window releases focus', () => {
+  assert.deepEqual(
+    laneFocusDecision({
+      state: { lastCommandAt: new Date(NOW - FOCUS_IDLE).toISOString() },
+      nowMs: NOW,
+      idleMs: FOCUS_IDLE,
+    }),
+    { hold: false, releaseInMs: null }
+  );
+});
+
+test('a lane with no command record does not hold focus', () => {
+  assert.deepEqual(
+    laneFocusDecision({ state: null, nowMs: NOW, idleMs: FOCUS_IDLE }),
+    { hold: false, releaseInMs: null }
+  );
+  assert.deepEqual(
+    laneFocusDecision({ state: { lastCommandAt: 'garbage' }, nowMs: NOW, idleMs: FOCUS_IDLE }),
+    { hold: false, releaseInMs: null }
+  );
 });
