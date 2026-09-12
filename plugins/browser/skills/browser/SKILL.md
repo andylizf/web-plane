@@ -7,8 +7,8 @@ description: >-
   (Cloudflare/Turnstile/DataDome), form submission, multi-step navigation, or "go to this site
   and do X" — even if the user never says the word "browser". It picks the right driving
   method and handles the shared concerns (which login profile, attaching over CDP, handling
-  login verification and human-only steps). It does not wrap another AI to drive for you — you are the
-  driver.
+  login verification and human-only steps). It never hands the deciding to another AI
+  framework; a subagent you brief drives, or you do.
 ---
 
 # Driving a browser
@@ -22,9 +22,10 @@ Wrapping one of those frameworks would mean calling an agent that calls *another
 weaker) model to do what you can already do directly: double the latency and cost, plus a
 hidden inner loop you can't see or debug.
 
-So this skill never outsources the *driving intelligence*. It only helps you pick the right
+So this skill never outsources the *driving intelligence*. A subagent you brief and whose
+report you read is not that: it is your loop. The skill only helps you pick the right
 **hands** (the operation layer) and the right **kernel** (the browser that does or doesn't
-get detected), and it handles the concerns every method shares. The driving is always you.
+get detected), and it handles the concerns every method shares.
 
 ## Step 0 — do you even need a browser?
 
@@ -308,18 +309,18 @@ unrequested delegation — work the conversation could have done itself, handed 
 gain. Browser driving is the opposite case: delegating is the only thing that keeps hundreds
 of accessibility trees out of a context the user still needs, so *not* delegating is what
 costs them. Reaching this skill is the pre-authorization. Spawn the subagent; don't stop to
-ask for permission you already have. Only a live instruction in *this* conversation — "do it
-yourself", "no subagents" — overrides that.
-
-This is not the AI-wrapping ruled out at the top of this file: a subagent is the same loop
-and the same model, reading the same snapshots and making the same decisions. The only thing
-that changes is whose context absorbs them.
+ask for permission you already have. Only an instruction in *this* conversation — told to do
+it yourself, or not to use a subagent — stops browser work going to a subagent at all.
 
 State in the brief that **web-plane is the only permitted method, and that failing to drive it
 is the outcome to report** — not a licence to reach for `curl`, a plain fetch, an API, or a
 second browser. A subagent told only "get X" treats the method as incidental and will fall
 back to whatever works, which silently loses the session, the fingerprint and the login the
 profile existed to carry.
+
+**Spawn it through Claude Code's Agent tool, always setting `model` explicitly: the model the
+user named; otherwise `"opus"`, or this conversation's own model if that is cheaper than Opus**
+(the author's cap on what the subagent may cost; if you cannot tell which is cheaper, `"opus"`).
 
 Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
 for, what changed, the final URL. Never raw snapshots, never `.playwright-cli/` dumps.
