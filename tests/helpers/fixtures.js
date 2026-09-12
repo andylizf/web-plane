@@ -18,6 +18,7 @@ const MARKERS = {
   crBrowser: PATCH_MARKERS.find(({ file }) => file.endsWith('/crBrowser.js'))?.marker,
   chromium: PATCH_MARKERS.find(({ file }) => file.endsWith('/chromium.js'))?.marker,
   crPage: PATCH_MARKERS.find(({ file }) => file.endsWith('/crPage.js'))?.marker,
+  chromiumSwitches: PATCH_MARKERS.find(({ file }) => file.endsWith('/chromiumSwitches.js'))?.marker,
 };
 
 export const SYSTEM_CHROME_APP = '/Applications/Google Chrome.app';
@@ -40,6 +41,7 @@ export function systemChromeVersion() {
  * @param {boolean} opts.crBrowserFile     create the second patched file at all
  * @param {boolean} opts.chromiumFile      create the native-session restore patch marker
  * @param {boolean} opts.crPageFile        create the focus-emulation patch marker
+ * @param {boolean} opts.chromiumSwitchesFile create the Memory Saver launch-flag patch marker
  * @param {'adhoc'|'signed'|'missing'} opts.clone  how the cloned Chrome is signed
  * @param {boolean|'legacy'} opts.dylib    which suppression hook exists
  * @param {string|null} opts.cloneVersion  null = match system Chrome
@@ -52,6 +54,7 @@ export function makeRuntime(home, opts = {}) {
     crBrowserFile = true,
     chromiumFile = true,
     crPageFile = true,
+    chromiumSwitchesFile = true,
     clone = 'adhoc',
     dylib = true,
     cloneVersion = null,
@@ -104,6 +107,12 @@ export function makeRuntime(home, opts = {}) {
     writeFileSync(
       join(pwServer, 'chromium', 'crPage.js'),
       `// ${MARKERS.crPage}\nmodule.exports = {};\n`
+    );
+  }
+  if (chromiumSwitchesFile) {
+    writeFileSync(
+      join(pwServer, 'chromium', 'chromiumSwitches.js'),
+      `// ${MARKERS.chromiumSwitches}\nmodule.exports = {};\n`
     );
   }
 

@@ -192,9 +192,11 @@ clock keeps its original start), forgets lanes whose tab is gone, and on a fresh
 restored tabs no lane records. The backstop does not replace normal task cleanup.
 
 A lane that has had no command for five minutes goes hidden: Chrome stops its animation frames
-and throttles its timers until the next command makes it visible again. This is web-plane's own
-focus-emulation hold, not Memory Saver; Memory Saver cannot discard a tab that has a driver
-attached, so it does not close lanes or replace the hard idle timeout.
+and throttles its timers until the next command makes it visible again. About two hours after
+that, Chrome's Memory Saver may discard the tab as it would any background tab, unless text was
+typed into a form or audio is playing; the lane survives, the next command reloads the page
+from its URL, and anything the page only held in memory is gone. Neither closes the lane or
+replaces the hard idle timeout.
 
 An `eval` can return successfully while a promise or timer it started fails later. When a
 multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:

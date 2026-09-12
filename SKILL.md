@@ -142,8 +142,9 @@ the profile re-arms monitors for recorded lanes whose tabs still exist (the idle
 clock keeps its original start), forgets lanes whose tab is gone, and on a fresh
 launch closes restored tabs no lane records. The backstop does not replace task
 cleanup. A lane with no command for five minutes goes hidden (animation frames
-stop, timers throttle) until its next command; that is web-plane's own
-focus-emulation hold, not Memory Saver, which cannot discard a driven tab.
+stop, timers throttle) until its next command; about two hours later Memory
+Saver may discard the tab like any background tab (not with typed form input
+or playing audio), and the next command reloads it from its URL.
 
 `web-plane install` enables Chrome Maximum Memory Saver for every existing
 managed profile, and each later launch enforces it again. Chrome may deactivate
