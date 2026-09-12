@@ -238,7 +238,9 @@ governs browser-instance ownership and forwards later launches for the same
 `--user-data-dir`; it does not serialize web-plane commands or native UI checks.
 
 The task that attaches a lane owns its lifecycle. Close the lane on every task
-exit path, including errors and cooperative cancellation, before returning.
+exit path, including errors and cooperative cancellation, before returning,
+unless a step still follows in the parent conversation (the commit, or a `show`
+for the human); then hand the lane back open and name it in the return.
 Closing a lane stops its driver and preserves sibling tabs. Once the final
 lane closes, Chrome exits if no other pages remain.
 Profiles stay on disk and the next attach starts Chrome again.
