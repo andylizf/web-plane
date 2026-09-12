@@ -5,13 +5,13 @@
    "--disable-extensions",
    "--disable-features=" + disabledFeatures(assistantMode).join(","),
 -  process.env.PLAYWRIGHT_LEGACY_SCREENSHOT ? "" : "--enable-features=CDPScreenshotNewSurface",
-+  // web-plane: Chromium never discards a tab with a DevTools client attached, and
-+  // every driven tab has one, so Memory Saver could not reclaim an idle lane.
-+  // AllowDevtoolsConnectedDiscard lifts that rule; the lane monitor follows the
-+  // replacement target. WEB_PLANE_MEMORY_SAVER_DISCARD=0 turns it back off.
++  // web-plane: Chromium never discards a tab with a DevTools client attached, so
++  // Memory Saver cannot reclaim an idle lane. AllowDevtoolsConnectedDiscard lifts
++  // that rule, but with Playwright attached the discard has crashed Chrome
++  // (SIGSEGV), so it is opt-in: WEB_PLANE_MEMORY_SAVER_DISCARD=1 enables it.
 +  "--enable-features=" + [
 +    process.env.PLAYWRIGHT_LEGACY_SCREENSHOT ? "" : "CDPScreenshotNewSurface",
-+    process.env.WEB_PLANE_MEMORY_SAVER_DISCARD === "0" ? "" : "AllowDevtoolsConnectedDiscard"
++    process.env.WEB_PLANE_MEMORY_SAVER_DISCARD === "1" ? "AllowDevtoolsConnectedDiscard" : ""
 +  ].filter(Boolean).join(","),
    "--allow-pre-commit-input",
    "--disable-hang-monitor",

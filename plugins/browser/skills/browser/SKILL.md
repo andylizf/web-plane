@@ -192,11 +192,11 @@ clock keeps its original start), forgets lanes whose tab is gone, and on a fresh
 restored tabs no lane records. The backstop does not replace normal task cleanup.
 
 A lane that has had no command for five minutes goes hidden: Chrome stops its animation frames
-and throttles its timers until the next command makes it visible again. About two hours after
-that, Chrome's Memory Saver may discard the tab as it would any background tab, unless text was
-typed into a form or audio is playing; the lane survives, the next command reloads the page
-from its URL, and anything the page only held in memory is gone. Neither closes the lane or
-replaces the hard idle timeout.
+and throttles its timers until the next command makes it visible again. Memory Saver does not
+discard driven tabs unless the runtime was launched with `WEB_PLANE_MEMORY_SAVER_DISCARD=1`
+(off by default: the discard has crashed Chrome with Playwright attached); with it on, a lane
+survives a discard and the next command reopens the page from its URL. Neither closes the lane
+or replaces the hard idle timeout.
 
 An `eval` can return successfully while a promise or timer it started fails later. When a
 multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:
