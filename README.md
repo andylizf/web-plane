@@ -285,12 +285,14 @@ visible to Chrome either way. The monitor logs `focus-held` and
 `web-plane install` enables Chrome's Maximum Memory Saver for every existing
 managed profile, and each later profile launch enforces it again. Chromium
 refuses to discard a tab with a DevTools client attached, which every driven
-tab has, so the launch adds `AllowDevtoolsConnectedDiscard`
-(`WEB_PLANE_MEMORY_SAVER_DISCARD=0` removes it). Memory Saver then treats a
-lane like any tab a person left in the background: about two hours after it
-went hidden it drops the renderer, keeping only the URL and title, unless
-Chrome's own protections apply (text typed into a form, audio playing, a
-pinned tab, and the rest). Chrome does that by replacing the tab under a new
+tab has. `WEB_PLANE_MEMORY_SAVER_DISCARD=1` at launch adds
+`AllowDevtoolsConnectedDiscard` to lift that rule; it is off by default because
+with Playwright attached the discard has crashed Chrome outright (SIGSEGV,
+reproduced on a clean system Chrome launched through Playwright). With it on,
+Memory Saver treats a lane like any tab a person left in the background: about
+two hours after it went hidden it drops the renderer, keeping only the URL and
+title, unless Chrome's own protections apply (text typed into a form, audio
+playing, a pinned tab, and the rest). Chrome does that by replacing the tab under a new
 target id. The lane monitor follows the replacement and updates the lane
 record, touching nothing until the tab has a renderer again; the next lane
 command reopens the lane's URL in a fresh tab, waits for the document, drops
