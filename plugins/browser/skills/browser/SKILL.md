@@ -160,11 +160,12 @@ session on its own pinned target, but a direct call bypasses web-plane's native 
 That can report a successful click while WebAuthn, Save/Open, or another Chrome-owned
 surface has taken the input. `lane` is the single command boundary for both protections.
 
-A lane owns exactly one tab and belongs to the task that attached it. Unless the user explicitly
-wants the page to outlive the task, arrange a finally-equivalent cleanup as soon as attach
-succeeds so `web-plane lane <lane> close` runs before the task returns on success, failure, or
-cooperative cancellation. Task-process death is handled only by the timeout backstop.
-The command closes that tab and stops its agent-browser daemon; if you need a second page, take
+A lane owns exactly one tab and belongs to the task that attached it. Unless the page must
+outlive the task — the user asked for that, or the brief says a later step still needs the lane —
+run `web-plane lane <lane> close` before the task returns, however the task ends. If you were
+told to leave it open, say so in your report; whoever takes the next step closes it.
+Task-process death is handled only by the timeout backstop.
+`close` closes that tab and stops its agent-browser daemon; if you need a second page, take
 a second lane.
 Lanes on the same profile keep independent pinned targets, and callers may submit commands
 concurrently. web-plane `lane`, `attach`, and crash-recovery calls that drive one profile queue
@@ -180,8 +181,8 @@ This web-plane command lock is separate from Chrome's `ProcessSingleton`, which 
 instance ownership and forwards later launches for the same `--user-data-dir`; it does not
 serialize web-plane commands or native UI checks.
 
-If a page deliberately outlives its task, leave it open without a special keep state. Its detached
-monitor enters forced reclamation 24 hours after the last lane command. Once it acquires the
+A page left open still has its detached monitor, which enters forced reclamation 24 hours
+after the last lane command. Once it acquires the
 same-profile critical section and confirms the target mapping, it directly closes the target
 regardless of visibility, unsaved input, media, `beforeunload`, requests, or downloads; then it
 stops that lane's agent-browser daemon, removes the lane mapping, and exits. Lock contention or a
@@ -190,7 +191,7 @@ critical-section holder can delay an attempt; any command through this lane rene
 A monitor dies with its browser and native restore brings the tab back without it, so every
 launch or reuse of the profile re-arms monitors for recorded lanes whose tabs still exist (the idle
 clock keeps its original start), forgets lanes whose tab is gone, and on a fresh launch closes
-restored tabs no lane records. The backstop does not replace normal task cleanup.
+restored tabs no lane records.
 
 A lane that has had no command for five minutes goes hidden: Chrome stops its animation frames
 and throttles its timers until the next command makes it visible again. Memory Saver does not
@@ -323,7 +324,8 @@ user named; otherwise `"opus"`, or this conversation's own model if that is chea
 (the author's cap on what the subagent may cost; if you cannot tell which is cheaper, `"opus"`).
 
 Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
-for, what changed, the final URL. Never raw snapshots, never `.playwright-cli/` dumps.
+for, what changed, the final URL, whether the lane is still open. Never raw snapshots, never
+`.playwright-cli/` dumps.
 Pasting those back spends exactly what the subagent was there to save.
 
 Subagents in one session may share a scratch directory. Prefix every scratch script and
@@ -350,7 +352,8 @@ up to that action and perform the action yourself with `web-plane lane`, in the 
 where the user actually spoke. One or two `lane` calls cost far less than the snapshots the
 subagent saved you.
 
-Decide this at the *start*, when you write the subagent's brief, not at the end. The failure
+Decide this at the *start*, when you write the subagent's brief: a staged commit needs the
+lane, so the brief says the lane comes back open. The failure
 mode is discovering it at the moment of the commit, which is exactly when there is least time:
 the brief says "stage only, never submit", the parent later relays an approval, the subagent
 refuses on principle, and the deadlock surfaces with the deadline in sight. (Real case: a
