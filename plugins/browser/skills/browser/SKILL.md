@@ -275,20 +275,20 @@ so is asserting a state you did not query. **Verify visibility explicitly after 
 `attach`, and after any `show`/`hide` whose command did not return cleanly** — and where the
 question is whether a window is on screen, `screencapture -x` of the display answers it,
 while a page screenshot cannot.
-The hidden window is the default state for the entire task. `show` exists for exactly one
-moment: when the human must act (login, CAPTCHA, MFA, a final confirm). The contract:
+The hidden window is the default state for the entire task. Show it only for an interaction
+the user must perform personally; needing their approval does not by itself require showing
+the page or handing over the remaining work. The contract:
 
 1. **Stage everything while hidden.** Navigate, click through menus, fill what you can,
-   and verify (by snapshot) that the page on screen is *the* screen the human must touch —
-   the login form itself, not the homepage that links to it.
+   and verify (by snapshot) that the page on screen is *the* screen the human must touch.
 2. **Then show, and say precisely what to do.** The user's first glance should land on
    their step, ready to go. Making the user watch you click around, or dumping them on an
    intermediate page, wastes the whole point of an invisible browser.
 3. **After their step is done, take back over** — verify the result by snapshot and `hide`
    again before continuing.
 
-If you discover mid-staging that you can't reach the handoff screen (e.g. a wall fires
-early), that changes what you show — re-stage so the wall itself is the screen, then show.
+If a new blocker appears before the handoff screen, apply the challenge rules above; show
+it only if resolving it requires the user personally.
 
 **`show` reported success but the screen is wrong.** Check the session first: with several
 browsers up an unqualified `show` refuses rather than guessing, so the question is whether
@@ -350,7 +350,9 @@ So: **the subagent stages, the parent commits.** When a task ends in an action t
 user's say-so — submitting a form, sending a message, publishing, paying — delegate everything
 up to that action and perform the action yourself with `web-plane lane`, in the conversation
 where the user actually spoke. One or two `lane` calls cost far less than the snapshots the
-subagent saved you.
+subagent saved you. A stop you put in a delegation brief limits that subagent, not the user's
+task: take the next action yourself or delegate the next step unless an observed blocker or
+an applicable approval rule requires the user.
 
 Decide this at the *start*, when you write the subagent's brief: a staged commit needs the
 lane, so the brief says the lane comes back open. The failure
