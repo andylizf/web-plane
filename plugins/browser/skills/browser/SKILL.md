@@ -252,7 +252,9 @@ An explicit retry request calls for a fresh attempt within the applicable login 
 attempt limits; do not assume the previous challenge or blocker still applies.
 
 Hand over only a step that actually requires the user's device, biometric, personal
-attestation, or information unavailable through authorized tools. Retrieve a login email
+attestation, or information unavailable through authorized tools. A sign-in page no
+authorized credential opens is such a step: hand it over rather than reporting it, and say
+in any blocked report which sign-in page you staged. Retrieve a login email
 or code yourself when authorized access exists and it matches the login you initiated.
 Keep any applicable higher-priority restriction and actual service lockout in force. If
 blocked, identify the current failed step and its observed error or applicable rule; do not
