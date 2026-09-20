@@ -205,6 +205,7 @@ web-plane lane task1 snapshot
 web-plane lane task1 type e3 "replacement"                # replace, never append
 web-plane lane task1 type e3 " suffix" --append           # append explicitly
 web-plane lane task1 find role button click --name "Save" # fresh semantic ref
+web-plane lane task1 find role button text --name "Save"  # only `text` reads
 web-plane lane task1 click e4                              # centers/retries if covered
 web-plane lane task1 click e4 --force                      # deliberate trusted click
 web-plane lane task1 close                                 # this tab only
@@ -286,14 +287,18 @@ values are read and compared internally but only their length is printed.
 `clear <selector>` empties a field without hand-written key loops. `snapshot`
 also reads each exposed form ref so that current values, explicit empty values,
 checked state, and selections are visible; passwords remain length-only.
-`find role ... --name ...` takes a fresh snapshot and resolves a fresh ref,
-including elements exposed from iframes. `key` reports the deepest focused
+`find role <role> <action> --name <name>` takes a fresh snapshot and resolves a
+fresh ref, including elements exposed from iframes. The action is required —
+`check`, `click`, `fill`, `hover` or `text`, and only `text` reads — so a lookup
+cannot press what it matched. `key` reports the deepest focused
 frame/element before dispatching through CDP. For DOM work that must span
 frames, `eval --all-frames <expression>` returns one value or error per frame.
 
 When a large canvas owns the viewport, `snapshot` prints a hint to use
 `screenshot`; this is the fallback for Sheets, Figma, maps, charts, and other
-content absent from the accessibility tree.
+content absent from the accessibility tree. Screenshot also when an action you
+expected to advance the flow reports success and the flow does not advance:
+form validation appears as styling, which no text read exposes.
 
 `web-plane lane <lane> errors` reads uncaught exceptions retained by the lane's
 persistent driver, including rejected promises and timer callbacks that failed
