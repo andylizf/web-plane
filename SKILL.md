@@ -5,7 +5,9 @@ description: >-
   focus. Use when a task needs real-Chrome browsing that passes bot detection
   (Cloudflare/logged-in sites) driven by agent-browser: web-plane provides a
   cloned real Chrome (navigator.webdriver=false) with a zero-flash hidden
-  window; agent-browser connects over CDP and does the operations.
+  window; agent-browser connects over CDP and does the operations. Where the
+  `browser` skill is available, it governs and this is its stealth
+  implementation reference.
 ---
 
 # Stealth browser: web-plane + agent-browser
@@ -73,6 +75,7 @@ over CDP instead of downloading another browser.
    web-plane lane task1 type e3 " suffix" --append        # explicit append
    web-plane lane task1 clear e3
    web-plane lane task1 find role button click --name Save # fresh semantic ref
+   web-plane lane task1 find role button text --name Save  # only `text` reads
    web-plane lane task1 click e4                           # auto-centers once
    web-plane lane task1 click e4 --force                   # deliberate override
    ```
@@ -89,6 +92,9 @@ over CDP instead of downloading another browser.
    ```bash
    web-plane lane task1 eval "navigator.webdriver"   # => false
    ```
+
+Name the verb on every `find role`: with none it clicks. The five are `check`, `click`, `fill`,
+`hover`, `text`, and only `text` reads.
 
 For a manual CDP connection, run `web-plane -s=main cdp` and use the exact
 `web-plane agent-browser --session main --pin-tab connect <port>` command it
@@ -178,7 +184,12 @@ web-plane quarantines the verified restore set and makes one clean launch.
 Use `web-plane lane task1 eval --all-frames '<expression>'` when the value may
 live inside an iframe. `key` reports the deepest focused element before sending
 the chord. If `snapshot` says the page appears canvas-rendered, use `screenshot`
-and read the image; the DOM/a11y tree cannot expose canvas pixels.
+and read the image; the DOM/a11y tree cannot expose canvas pixels. When an action
+you expected to advance the flow reports success and the flow did not advance,
+read the snapshot's control values and then screenshot before concluding
+anything: validation shows as styling that no text read exposes, so never report
+the action as blocked, or hand it to the user, without saying what the
+screenshot showed.
 
 `web-plane profiles` marks a user-data directory as `SPLIT` if Chrome created
 multiple inner profiles such as `Default` and `Profile 1`. When more than one

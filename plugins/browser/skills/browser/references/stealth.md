@@ -24,6 +24,7 @@ web-plane lane work snapshot                             # refs e1,e2… then cl
 web-plane lane work click e3
 web-plane lane work type e4 "replacement"                 # replace; --append opts in
 web-plane lane work find role button click --name Save    # fresh semantic ref
+web-plane lane work find role button text --name Save     # only `text` reads
 web-plane lane work eval --all-frames "document.title"    # one result per frame
 web-plane lane work eval "navigator.webdriver"           # => false (confirm stealth)
 web-plane lane work errors                               # detached async failures
@@ -35,8 +36,12 @@ Attach and navigation wait for network idle by default; use `--wait-for`, `--tim
 `--no-wait` to change the readiness contract. After `fill`, `type`, or `clear`, web-plane gets
 the same field's value and requires an exact match. Ordinary values are printed; passwords are
 compared internally and reported by length only. Snapshot refs include current form values,
-explicit empty values, checked state, and selections. If `snapshot` detects a large canvas, use
-`screenshot` and read the image. `key` reports which focused frame/element receives the chord.
+explicit empty values, checked state, and selections. Name the verb on every `find role`: with none it clicks. If `snapshot` detects a large canvas, use
+`screenshot` and read the image. When an action you expected to advance the flow reports success and
+the flow did not advance, read the snapshot's control values and then screenshot before concluding
+anything: validation shows as styling no text read exposes, so never report the action as blocked,
+or hand it to the user, without saying what the screenshot showed.
+`key` reports which focused frame/element receives the chord.
 
 Drive through `web-plane lane`, not `agent-browser` directly. agent-browser owns the pinned
 target; the wrapper activates it through CDP and adds web-plane's pre/post blocking-UI gate

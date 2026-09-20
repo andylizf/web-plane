@@ -140,8 +140,12 @@ test('semantic role lookup resolves a fresh iframe-visible snapshot ref', () => 
     resolveSnapshotRole('- textbox "Statement" [ref=e2]', plan),
     null,
   );
+  assert.throws(
+    () => parseSemanticFind(['find', 'role', 'button', '--name', 'Save']),
+    /requires an action/
+  );
   assert.equal(
-    translateLaneCommand(['find', 'role', 'button', '--name', 'Save']).operation,
+    translateLaneCommand(['find', 'role', 'button', 'click', '--name', 'Save']).operation,
     'semantic-find'
   );
 });
