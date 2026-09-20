@@ -124,6 +124,7 @@ that changes each launch.
 web-plane lane <lane> snapshot
 web-plane lane <lane> type e3 "replacement"               # replaces by default
 web-plane lane <lane> find role button click --name Save  # fresh ref, iframe-aware
+web-plane lane <lane> find role button text --name Save   # read it; omitting the verb clicks
 web-plane lane <lane> click e4                            # center + one retry if covered
 web-plane lane <lane> get url
 ```
@@ -148,11 +149,26 @@ Use lane `wait` for readiness between actions rather than hand-tuned sleeps.
 
 Refs still belong to one snapshot. For a role/name that survives re-rendering, use `find role
 <role> <action> --name <name>`; web-plane resolves it against a fresh snapshot, including
-iframe-visible elements. Use `eval --all-frames` for frame-spanning reads. `key` reports the
-deepest focused frame and element before dispatching, so a chord no longer fails invisibly.
+iframe-visible elements. **Omit the action and it clicks**, so a `find` you meant as a lookup
+presses whatever it matched, which on an irreversible, outward-facing control is that action
+performed. Name the verb every time: `check`, `click`, `fill`, `hover`, `text` — only `text` reads.
+Use `eval --all-frames` for frame-spanning reads. `key` reports the deepest focused frame and
+element before dispatching.
 
 If `snapshot` reports a large canvas, stop looking for its pixels in the DOM: run `screenshot`
 and read the image. This is the normal fallback for Sheets, Figma, maps, and charting UIs.
+
+**An action you expected to advance the flow — submit, continue, place the order — reported success
+and the flow did not advance: find out why before doing anything else.** The likely cause is form
+validation, and the accessibility tree tells you a control's state and never its validity: snapshot
+first and read every control's value and checked state against what the form requires, because that
+channel is cheap and diffable; then screenshot, because required-ness and error styling — a red
+border, an error glyph — appear nowhere in the tree, and the flagged control's own text often reads
+like ordinary boilerplate, so `eval`, `find role … text` and the snapshot all walk past it. A clean
+screenshot sends you to `errors` and `netlog --failed`, not to the user. Repeating the action
+instead re-triggers the same validation, and each repeat looks identical to being silently blocked,
+so a report that an action is blocked, and any handoff to the user, names what the screenshot
+showed.
 
 **Do not call `agent-browser` directly on a shared browser.** Version 0.34 keeps each
 session on its own pinned target, but a direct call bypasses web-plane's native UI gate.
@@ -193,8 +209,9 @@ it again. The backstop does not replace normal task cleanup.
 each later launch enforces it again. Chrome may deactivate a background tab and reload the tab on
 next access; it does not close the lane or replace the hard idle timeout.
 
-An `eval` can return successfully while a promise or timer it started fails later. When a
-multi-step browser script produces a missing or stale result, inspect the persistent lane buffer:
+An `eval` can return successfully while a promise or timer it started fails later. After an `eval`
+that starts asynchronous work, or when a request may have failed, inspect the persistent lane
+buffer:
 ```
 web-plane lane <lane> errors
 web-plane lane <lane> netlog --failed
