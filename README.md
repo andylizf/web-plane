@@ -239,7 +239,9 @@ governs browser-instance ownership and forwards later launches for the same
 `--user-data-dir`; it does not serialize web-plane commands or native UI checks.
 
 The task that attaches a lane owns its lifecycle. Close the lane on every task
-exit path, including errors and cooperative cancellation, before returning.
+exit path, including errors and cooperative cancellation, before returning,
+unless a step still follows in the parent conversation (the commit, or a `show`
+for the human); then hand the lane back open and name it in the return.
 Closing a lane stops its driver and preserves sibling tabs. Once the final
 lane closes, Chrome exits if no other pages remain.
 Profiles stay on disk and the next attach starts Chrome again.
@@ -261,14 +263,47 @@ Every close, retry, or failed cleanup is appended
 to the session JSONL log. `WEB_PLANE_LANE_TTL_MS` (default `86400000`) and
 `WEB_PLANE_REAP_INTERVAL_MS` (default `3600000`) override the two intervals for
 controlled testing. Normal task cleanup remains immediate: the hard timeout is
-only the abandoned-page backstop. If the detached monitor itself is killed, the
-backstop resumes only when the lane is attached or recovered again.
+only the abandoned-page backstop. A monitor dies with its browser, and Chrome's
+native session restore brings the lane's tab back without it, so every launch or
+reuse of a profile re-arms the monitor of each recorded lane whose tab still
+exists (the idle clock keeps its original start), forgets lanes whose tab is
+gone, and on a fresh launch closes restored tabs that no lane records. Look-alike
+tabs are left unbound, as in recovery. Each step is appended to the session
+JSONL log as a `lane-reconcile-*` event.
+
+Idle lanes go hidden. Upstream Playwright enables DevTools focus emulation on
+every page, and Chromium implements that by counting the tab as captured: the
+page stays visible and renders at full frame rate however long it idles, and
+Memory Saver never sees it as inactive. web-plane's Playwright patch leaves that
+off (`WEB_PLANE_PLAYWRIGHT_FOCUS_EMULATION=1` restores upstream behaviour).
+Instead each lane monitor holds focus emulation while its lane is active and
+releases it `WEB_PLANE_LANE_FOCUS_IDLE_MS` (default `300000`, five minutes)
+after the last lane command, and the CLI holds it again for the duration of
+every command. An idle background tab therefore reports `hidden`, stops
+animation frames, and has its timers throttled by Chrome itself; the next
+command makes it visible again. The active tab of the hidden window stays
+visible to Chrome either way. The monitor logs `focus-held` and
+`focus-released` to the lane's event file.
 
 `web-plane install` enables Chrome's Maximum Memory Saver for every existing
-managed profile, and each later profile launch enforces it again. That is a
-separate, earlier pressure valve: Chrome may deactivate a background tab and
-reload it on its next access, but the lane and target remain until they are
-explicitly closed or reach the hard idle timeout.
+managed profile, and each later profile launch enforces it again. Chromium
+refuses to discard a tab with a DevTools client attached, which every driven
+tab has. `WEB_PLANE_MEMORY_SAVER_DISCARD=1` at launch adds
+`AllowDevtoolsConnectedDiscard` to lift that rule; it is off by default because
+with Playwright attached the discard has crashed Chrome outright (SIGSEGV,
+reproduced on a clean system Chrome launched through Playwright). With it on,
+Memory Saver treats a lane like any tab a person left in the background: about
+two hours after it went hidden it drops the renderer, keeping only the URL and
+title, unless Chrome's own protections apply (text typed into a form, audio
+playing, a pinned tab, and the rest). Chrome does that by replacing the tab under a new
+target id. The lane monitor follows the replacement and updates the lane
+record, touching nothing until the tab has a renderer again; the next lane
+command reopens the lane's URL in a fresh tab, waits for the document, drops
+the placeholder, re-pins the driver, and then runs (activating a discarded
+tab does not make this Chrome reload it). Page state that only lived in
+memory does not survive. A person who clicks a discarded lane tab in `show`
+mode sees it stay blank; a lane command brings it back. The lane still ends only when it is
+explicitly closed or reaches the hard idle timeout.
 
 `attach` waits for `load` for up to 15 seconds by default, so pages with ongoing
 network requests can attach. Lane `open`, `goto`, and `navigate` continue to

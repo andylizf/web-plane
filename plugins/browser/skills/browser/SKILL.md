@@ -7,8 +7,8 @@ description: >-
   (Cloudflare/Turnstile/DataDome), form submission, multi-step navigation, or "go to this site
   and do X" — even if the user never says the word "browser". It picks the right driving
   method and handles the shared concerns (which login profile, attaching over CDP, handling
-  login verification and human-only steps). It does not wrap another AI to drive for you — you are the
-  driver.
+  login verification and human-only steps). It never hands the deciding to another AI
+  framework; a subagent you brief drives, or you do.
 ---
 
 # Driving a browser
@@ -22,9 +22,10 @@ Wrapping one of those frameworks would mean calling an agent that calls *another
 weaker) model to do what you can already do directly: double the latency and cost, plus a
 hidden inner loop you can't see or debug.
 
-So this skill never outsources the *driving intelligence*. It only helps you pick the right
+So this skill never outsources the *driving intelligence*. A subagent you brief and whose
+report you read is not that: it is your loop. The skill only helps you pick the right
 **hands** (the operation layer) and the right **kernel** (the browser that does or doesn't
-get detected), and it handles the concerns every method shares. The driving is always you.
+get detected), and it handles the concerns every method shares.
 
 ## Step 0 — do you even need a browser?
 
@@ -175,11 +176,12 @@ session on its own pinned target, but a direct call bypasses web-plane's native 
 That can report a successful click while WebAuthn, Save/Open, or another Chrome-owned
 surface has taken the input. `lane` is the single command boundary for both protections.
 
-A lane owns exactly one tab and belongs to the task that attached it. Unless the user explicitly
-wants the page to outlive the task, arrange a finally-equivalent cleanup as soon as attach
-succeeds so `web-plane lane <lane> close` runs before the task returns on success, failure, or
-cooperative cancellation. Task-process death is handled only by the timeout backstop.
-The command closes that tab and stops its agent-browser daemon; if you need a second page, take
+A lane owns exactly one tab and belongs to the task that attached it. Unless the page must
+outlive the task — the user asked for that, or the brief says a later step still needs the lane —
+run `web-plane lane <lane> close` before the task returns, however the task ends. If you were
+told to leave it open, say so in your report; whoever takes the next step closes it.
+Task-process death is handled only by the timeout backstop.
+`close` closes that tab and stops its agent-browser daemon; if you need a second page, take
 a second lane.
 Lanes on the same profile keep independent pinned targets, and callers may submit commands
 concurrently. web-plane `lane`, `attach`, and crash-recovery calls that drive one profile queue
@@ -195,19 +197,24 @@ This web-plane command lock is separate from Chrome's `ProcessSingleton`, which 
 instance ownership and forwards later launches for the same `--user-data-dir`; it does not
 serialize web-plane commands or native UI checks.
 
-If a page deliberately outlives its task, leave it open without a special keep state. Its detached
-monitor enters forced reclamation 24 hours after the last lane command. Once it acquires the
+A page left open still has its detached monitor, which enters forced reclamation 24 hours
+after the last lane command. Once it acquires the
 same-profile critical section and confirms the target mapping, it directly closes the target
 regardless of visibility, unsaved input, media, `beforeunload`, requests, or downloads; then it
 stops that lane's agent-browser daemon, removes the lane mapping, and exits. Lock contention or a
 failed close/driver cleanup is logged and retried rather than reported as success. Any same-profile
 critical-section holder can delay an attempt; any command through this lane renews its deadline.
-If the monitor process itself is killed, this backstop resumes only when attach or recovery starts
-it again. The backstop does not replace normal task cleanup.
+A monitor dies with its browser and native restore brings the tab back without it, so every
+launch or reuse of the profile re-arms monitors for recorded lanes whose tabs still exist (the idle
+clock keeps its original start), forgets lanes whose tab is gone, and on a fresh launch closes
+restored tabs no lane records.
 
-`web-plane install` enables Chrome Maximum Memory Saver for every existing managed profile, and
-each later launch enforces it again. Chrome may deactivate a background tab and reload the tab on
-next access; it does not close the lane or replace the hard idle timeout.
+A lane that has had no command for five minutes goes hidden: Chrome stops its animation frames
+and throttles its timers until the next command makes it visible again. Memory Saver does not
+discard driven tabs unless the runtime was launched with `WEB_PLANE_MEMORY_SAVER_DISCARD=1`
+(off by default: the discard has crashed Chrome with Playwright attached); with it on, a lane
+survives a discard and the next command reopens the page from its URL. Neither closes the lane
+or replaces the hard idle timeout.
 
 An `eval` can return successfully while a promise or timer it started fails later. After an `eval`
 that starts asynchronous work, or when a request may have failed, inspect the persistent lane
@@ -285,20 +292,20 @@ so is asserting a state you did not query. **Verify visibility explicitly after 
 `attach`, and after any `show`/`hide` whose command did not return cleanly** — and where the
 question is whether a window is on screen, `screencapture -x` of the display answers it,
 while a page screenshot cannot.
-The hidden window is the default state for the entire task. `show` exists for exactly one
-moment: when the human must act (login, CAPTCHA, MFA, a final confirm). The contract:
+The hidden window is the default state for the entire task. Show it only for an interaction
+the user must perform personally; needing their approval does not by itself require showing
+the page or handing over the remaining work. The contract:
 
 1. **Stage everything while hidden.** Navigate, click through menus, fill what you can,
-   and verify (by snapshot) that the page on screen is *the* screen the human must touch —
-   the login form itself, not the homepage that links to it.
+   and verify (by snapshot) that the page on screen is *the* screen the human must touch.
 2. **Then show, and say precisely what to do.** The user's first glance should land on
    their step, ready to go. Making the user watch you click around, or dumping them on an
    intermediate page, wastes the whole point of an invisible browser.
 3. **After their step is done, take back over** — verify the result by snapshot and `hide`
    again before continuing.
 
-If you discover mid-staging that you can't reach the handoff screen (e.g. a wall fires
-early), that changes what you show — re-stage so the wall itself is the screen, then show.
+If a new blocker appears before the handoff screen, apply the challenge rules above; show
+it only if resolving it requires the user personally.
 
 **`show` reported success but the screen is wrong.** Check the session first: with several
 browsers up an unqualified `show` refuses rather than guessing, so the question is whether
@@ -320,12 +327,8 @@ unrequested delegation — work the conversation could have done itself, handed 
 gain. Browser driving is the opposite case: delegating is the only thing that keeps hundreds
 of accessibility trees out of a context the user still needs, so *not* delegating is what
 costs them. Reaching this skill is the pre-authorization. Spawn the subagent; don't stop to
-ask for permission you already have. Only a live instruction in *this* conversation — "do it
-yourself", "no subagents" — overrides that.
-
-This is not the AI-wrapping ruled out at the top of this file: a subagent is the same loop
-and the same model, reading the same snapshots and making the same decisions. The only thing
-that changes is whose context absorbs them.
+ask for permission you already have. Only an instruction in *this* conversation — told to do
+it yourself, or not to use a subagent — stops browser work going to a subagent at all.
 
 State in the brief that **web-plane is the only permitted method, and that failing to drive it
 is the outcome to report** — not a licence to reach for `curl`, a plain fetch, an API, or a
@@ -333,8 +336,13 @@ second browser. A subagent told only "get X" treats the method as incidental and
 back to whatever works, which silently loses the session, the fingerprint and the login the
 profile existed to carry.
 
+**Spawn it through Claude Code's Agent tool, always setting `model` explicitly: the model the
+user named; otherwise `"opus"`, or this conversation's own model if that is cheaper than Opus**
+(the author's cap on what the subagent may cost; if you cannot tell which is cheaper, `"opus"`).
+
 Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
-for, what changed, the final URL. Never raw snapshots, never `.playwright-cli/` dumps.
+for, what changed, the final URL, whether the lane is still open. Never raw snapshots, never
+`.playwright-cli/` dumps.
 Pasting those back spends exactly what the subagent was there to save.
 
 Subagents in one session may share a scratch directory. Prefix every scratch script and
@@ -359,9 +367,12 @@ So: **the subagent stages, the parent commits.** When a task ends in an action t
 user's say-so — submitting a form, sending a message, publishing, paying — delegate everything
 up to that action and perform the action yourself with `web-plane lane`, in the conversation
 where the user actually spoke. One or two `lane` calls cost far less than the snapshots the
-subagent saved you.
+subagent saved you. A stop you put in a delegation brief limits that subagent, not the user's
+task: take the next action yourself or delegate the next step unless an observed blocker or
+an applicable approval rule requires the user.
 
-Decide this at the *start*, when you write the subagent's brief, not at the end. The failure
+Decide this at the *start*, when you write the subagent's brief: a staged commit needs the
+lane, so the brief says the lane comes back open. The failure
 mode is discovering it at the moment of the commit, which is exactly when there is least time:
 the brief says "stage only, never submit", the parent later relays an approval, the subagent
 refuses on principle, and the deadlock surfaces with the deadline in sight. (Real case: a

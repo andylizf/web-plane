@@ -142,9 +142,16 @@ unsaved input, media, `beforeunload`, requests, or downloads; then it stops that
 lane's agent-browser daemon, removes the lane mapping, and exits. Lock contention
 or a failed close/driver cleanup is logged and retried rather than reported as
 success. Any same-profile critical-section holder can delay an attempt; any
-command through this lane renews its deadline. If the monitor process itself is
-killed, this backstop resumes only when attach or recovery starts it again. The
-backstop does not replace task cleanup.
+command through this lane renews its deadline. A monitor dies with its browser
+and native restore brings the tab back without it, so every launch or reuse of
+the profile re-arms monitors for recorded lanes whose tabs still exist (the idle
+clock keeps its original start), forgets lanes whose tab is gone, and on a fresh
+launch closes restored tabs no lane records. The backstop does not replace task
+cleanup. A lane with no command for five minutes goes hidden (animation frames
+stop, timers throttle) until its next command. Memory Saver discards driven
+tabs only when the runtime was launched with `WEB_PLANE_MEMORY_SAVER_DISCARD=1`
+(off by default: it has crashed Chrome); then the next command reopens the
+page from its URL.
 
 `web-plane install` enables Chrome Maximum Memory Saver for every existing
 managed profile, and each later launch enforces it again. Chrome may deactivate

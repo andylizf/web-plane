@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { publicTarget, resolveRestoredTarget } from '../../lib/lane-recovery.js';
+import { publicTarget, resolveDiscardReplacement, resolveRestoredTarget } from '../../lib/lane-recovery.js';
 
 const targets = [
   { id: 'A', title: 'Application', url: 'https://portal.example/form?step=3#address' },
@@ -76,4 +76,16 @@ test('public target diagnostics strip query strings and fragments', () => {
     title: 'Application',
     url: 'https://portal.example/form',
   });
+});
+
+test('a discarded tab is followed to its placeholder, never back to the old target', () => {
+  const saved = { targetId: 'OLD', url: 'https://mail.example/inbox', title: 'Inbox' };
+  const live = [
+    { id: 'OLD', title: 'Inbox', url: 'https://mail.example/inbox' },
+    { id: 'NEW', title: 'Inbox', url: 'https://mail.example/inbox' },
+  ];
+  const result = resolveDiscardReplacement(saved, live, 'OLD');
+  assert.equal(result.status, 'matched');
+  assert.equal(result.target.id, 'NEW');
+  assert.equal(resolveDiscardReplacement(saved, [live[0]], 'OLD').status, 'missing');
 });
