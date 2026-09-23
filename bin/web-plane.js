@@ -14,7 +14,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel', 'ui', 'agent-browser']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'wait-hidden', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel', 'ui', 'agent-browser']);
 
 // Commands playwright-cli answers about *itself*. Proxying them succeeds and
 // prints something authoritative-looking that has nothing to do with web-plane:
@@ -98,8 +98,12 @@ Profiles (login identities):
 
 Window management:
   show                    Make browser window visible
-  hide                    Make window invisible (screenshots still work)
+  hide                    Make window invisible (screenshots still work).
+                          Refused while the user is working in the window
+                          (frontmost, input in the last 2 minutes); add
+                          --while-active only after the user agrees
   toggle                  Toggle window visibility
+  wait-hidden [seconds]   Block until the window is hidden (default 600s)
   status                  Show browser status (PID, visibility, session)
 
 Native Save/Open panels:
@@ -194,7 +198,11 @@ if (command === 'install') {
   await attach(parseSessionFlag(rawArgs), rest, lane);
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
-  await windowControl(command, parseSessionFlag(rawArgs));
+  await windowControl(command, parseSessionFlag(rawArgs), { whileActive: commandArgs.includes('--while-active') });
+} else if (command === 'wait-hidden') {
+  const { waitHidden } = await import('../lib/window.js');
+  const seconds = stripSessionFlag(commandArgs)[0];
+  await waitHidden(parseSessionFlag(rawArgs), seconds ? Number(seconds) : undefined);
 } else if (command === 'status') {
   const { getStatus } = await import('../lib/window.js');
   const s = await getStatus(parseSessionFlag(rawArgs));

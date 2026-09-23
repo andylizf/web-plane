@@ -7,6 +7,7 @@ import {
   measuredWindowState,
   measuredFrontmostApp,
   screenWindowAt,
+  userActiveDecision,
   windowVisibilityUncertainty,
 } from '../../lib/window.js';
 
@@ -271,4 +272,12 @@ test('parked means at most a sliver is left on screen', () => {
   // macOS refuses to push a window fully off, so a "hidden" window can sit with
   // ~40px still inside the display — that must still count as parked.
   assert.equal(isParked({ left: -1240, width: 1280 }), true);
+});
+
+test('the user counts as active only in a frontmost browser with recent input', () => {
+  assert.equal(userActiveDecision({ chromePid: PID, frontPid: PID, idleMs: 5_000 }).active, true);
+  assert.equal(userActiveDecision({ chromePid: PID, frontPid: PID, idleMs: 300_000 }).active, false);
+  assert.equal(userActiveDecision({ chromePid: PID, frontPid: 1, idleMs: 5_000 }).active, false);
+  assert.equal(userActiveDecision({ chromePid: PID, frontPid: null, idleMs: 5_000 }).active, null);
+  assert.equal(userActiveDecision({ chromePid: PID, frontPid: PID, idleMs: null }).active, null);
 });

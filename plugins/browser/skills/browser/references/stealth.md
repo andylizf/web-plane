@@ -61,14 +61,18 @@ Stealth degrades quietly rather than failing — a missing playwright patch sile
 to the *system* Chrome with no hook, so windows appear and `hide` can only minimize. If you
 see a window, run `doctor` before anything else.
 
-## Hide / show — web-plane owns visibility; driving continues either way
+## Hide / show — a shown window is the user's
 ```bash
-web-plane -s=main hide            # window invisible, CDP control unaffected
+web-plane -s=main hide            # window invisible; lanes drive it again
 web-plane -s=main show            # raises to the foreground (steals focus — that's the point)
 web-plane -s=main status          # session, PID, CDP port, hidden/minimized/visible
+web-plane -s=main wait-hidden     # block until the window is hidden (default 600 s)
 web-plane -s=main close
 ```
-Visibility is per web-plane session, not per lane. Showing it normally shows whichever tab is
+Visibility is per web-plane session, not per lane. While it is shown, lanes on it refuse
+all but seven reads, `hide` refuses while the user is working in it, and hiding needs the user's
+agreement until they hand the window back — the rules are under
+"Visibility choreography" in SKILL.md. Showing it normally shows whichever tab is
 in front; a live inner-profile split refuses instead. Snapshot your lane immediately before
 `show` for a human handoff.
 Hidden is the resting state; `show` is only for a staged human handoff — see "Visibility

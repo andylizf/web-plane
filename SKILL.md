@@ -111,7 +111,8 @@ One lane owns one tab and belongs to the task that attached it. Unless the user
 explicitly wants the page to outlive the task, arrange a finally-equivalent
 cleanup as soon as attach succeeds so `web-plane lane task1 close` runs before
 the task returns on success, error, or cooperative cancellation. It closes that
-tab and stops its agent-browser daemon. Use another lane when the task needs
+tab and stops its agent-browser daemon. If `close` returns `WINDOW_SHOWN`, whoever
+showed the window, leave the lane open and say so in the task's report. Use another lane when the task needs
 another page.
 Chrome exits when its final page closes. During attach, startup pages are
 removed only if Chrome was newly launched and all its existing pages were
@@ -147,8 +148,8 @@ and native restore brings the tab back without it, so every launch or reuse of
 the profile re-arms monitors for recorded lanes whose tabs still exist (the idle
 clock keeps its original start), forgets lanes whose tab is gone, and on a fresh
 launch closes restored tabs no lane records. The backstop does not replace task
-cleanup. A lane with no command for five minutes goes hidden (animation frames
-stop, timers throttle) until its next command. Memory Saver discards driven
+cleanup. A lane with no command for five minutes has its page backgrounded
+(animation frames stop, timers throttle) until its next command. Memory Saver discards driven
 tabs only when the runtime was launched with `WEB_PLANE_MEMORY_SAVER_DISCARD=1`
 (off by default: it has crashed Chrome); then the next command reopens the
 page from its URL.
@@ -201,11 +202,28 @@ is present.
 
 ## Hide / show
 
-web-plane owns window visibility; agent-browser keeps driving either way:
+A shown window is the user's until they say they are finished with it or agree to hand it back;
+until then, do not `hide` it, drive it, close lanes on it or answer panels in it. "Shown" is
+web-plane's state for the whole `-s` session from `show` until `hide`, not what is on screen.
+The CLI enforces part of this:
+
+- `lane` refuses every command except `snapshot`, `get`, `is`, `console`, `errors`, `title`
+  and `url` with `WINDOW_SHOWN` (exit 4), and so does `attach`. Those seven do not bring the
+  lane's tab forward; `lane <lane> --while-shown <command>` (flag right after the lane name)
+  does, and needs the user's agreement.
+- `hide` refuses with `USER_ACTIVE` (exit 4) while this browser is the frontmost app and there
+  was input in the last two minutes; `hide --while-active` needs the same agreement. A `hide`
+  that succeeds is not evidence the user agreed.
+- On `WINDOW_SHOWN` from someone else's handoff while the task still needs the lane, run `wait-hidden` in the background
+  (default 600 s, exit 1 on timeout — then report, do not retry) or ask the user.
+
+Nothing refuses `-s close`, `panel accept`/`cancel` or a manual agent-browser connection
+while shown; do not use them either without that agreement.
 
 ```bash
-web-plane -s=work hide     # window invisible, CDP control unaffected
+web-plane -s=work hide     # window invisible
 web-plane -s=work show
+web-plane -s=work wait-hidden [seconds]
 web-plane -s=work status   # PID, CDP port, visibility
 web-plane -s=work close
 ```
@@ -228,7 +246,7 @@ window by itself.
   browser driver's dialog API.
 - Upload files with `setInputFiles` or the driver's file-chooser event; do not
   operate the visible Open panel for an HTML file input.
-- For a real macOS Save/Open panel owned by managed Chrome, use:
+- For a real macOS Save/Open panel owned by managed Chrome in a hidden session, use:
 
   ```bash
   web-plane -s=work panel status
