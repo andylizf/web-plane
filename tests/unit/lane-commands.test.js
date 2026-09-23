@@ -12,13 +12,20 @@ import {
 
 test('WebAuthn suppression is an explicit attach-only flag', () => {
   assert.deepEqual(parseAttachOptions(['https://example.com']), {
-    args: ['https://example.com'], webauthnDisabled: false,
+    args: ['https://example.com'], webauthnDisabled: false, whileShown: false,
   });
   assert.deepEqual(parseAttachOptions(['--no-webauthn', 'https://example.com', '--no-wait']), {
-    args: ['https://example.com', '--no-wait'], webauthnDisabled: true,
+    args: ['https://example.com', '--no-wait'], webauthnDisabled: true, whileShown: false,
   });
   assert.throws(() => parseAttachOptions(['--no-webauthn=false']), /is a flag/);
   assert.throws(() => parseAttachOptions(['--no-webauthn', '--no-webauthn']), /only once/);
+});
+
+test('attaching over a shown window takes an explicit flag', () => {
+  assert.deepEqual(parseAttachOptions(['--while-shown', 'https://example.com']), {
+    args: ['https://example.com'], webauthnDisabled: false, whileShown: true,
+  });
+  assert.throws(() => parseAttachOptions(['--while-shown', '--while-shown']), /only once/);
 });
 
 test('plain type replaces existing content while --append keeps upstream type semantics', () => {

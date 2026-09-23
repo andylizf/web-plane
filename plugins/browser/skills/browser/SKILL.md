@@ -130,7 +130,8 @@ web-plane lane <lane> click e4                            # center + one retry i
 web-plane lane <lane> get url
 ```
 `attach` gives each named agent-browser session a strict persistent CDP target binding.
-`web-plane lane` activates that already-bound target directly through CDP, making
+`web-plane lane` activates that already-bound target directly through CDP (the seven reads listed
+below skip this while the window is shown), making
 Chrome-owned UI observable without reselecting it through agent-browser or invalidating refs
 from the preceding snapshot. The wrapper adds web-plane's blocking-UI checks before and after
 the page command.
@@ -178,8 +179,9 @@ surface has taken the input. `lane` is the single command boundary for both prot
 
 A lane owns exactly one tab and belongs to the task that attached it. Unless the page must
 outlive the task — the user asked for that, or the brief says a later step still needs the lane —
-run `web-plane lane <lane> close` before the task returns, however the task ends. If you were
-told to leave it open, say so in your report; whoever takes the next step closes it.
+run `web-plane lane <lane> close` before the task returns, however the task ends. If the lane is
+still open when you report — you were told to leave it open, or `close` returned
+`WINDOW_SHOWN` — say so in your report; whoever takes the next step closes it.
 Task-process death is handled only by the timeout backstop.
 `close` closes that tab and stops its agent-browser daemon; if you need a second page, take
 a second lane.
@@ -209,8 +211,8 @@ launch or reuse of the profile re-arms monitors for recorded lanes whose tabs st
 clock keeps its original start), forgets lanes whose tab is gone, and on a fresh launch closes
 restored tabs no lane records.
 
-A lane that has had no command for five minutes goes hidden: Chrome stops its animation frames
-and throttles its timers until the next command makes it visible again. Memory Saver does not
+A lane that has had no command for five minutes has its page backgrounded: Chrome stops its
+animation frames and throttles its timers until the next command. Memory Saver does not
 discard driven tabs unless the runtime was launched with `WEB_PLANE_MEMORY_SAVER_DISCARD=1`
 (off by default: the discard has crashed Chrome with Playwright attached); with it on, a lane
 survives a discard and the next command reopens the page from its URL. Neither closes the lane
@@ -284,8 +286,8 @@ For new-account registration, continue to hand identity-establishing steps to th
 
 **`attach` does not reset visibility, and a command that failed is not evidence about the
 state it was trying to produce.** A session that has been shown stays shown; a later
-`attach --as <lane>` reuses it and says so (`Session: main (reused, may already have tabs)`),
-so the window comes up visible. And `hide` can fail — the browser dying mid-command produces
+`attach --as <lane>` on it is refused with `WINDOW_SHOWN` (see below) rather than opening a
+tab in front of the user. And `hide` can fail — the browser dying mid-command produces
 a stack trace plus `browser behind lane '<lane>' is no longer running`, which looks from the
 outside exactly like the window going away. Reading that as "the window is closed" and saying
 so is asserting a state you did not query. **Verify visibility explicitly after every
@@ -301,8 +303,31 @@ the page or handing over the remaining work. The contract:
 2. **Then show, and say precisely what to do.** The user's first glance should land on
    their step, ready to go. Making the user watch you click around, or dumping them on an
    intermediate page, wastes the whole point of an invisible browser.
-3. **After their step is done, take back over** — verify the result by snapshot and `hide`
-   again before continuing.
+3. **After they tell you they are finished with the window, take back over** — verify the result by snapshot, then `hide`
+   and continue.
+
+**A shown window is the user's until they hand it back**, and their message that they are
+finished with the window hands it back. Until then — whoever started the handoff — `hide` and every override (`hide --while-active`,
+`--while-shown` on `lane <lane>` or `attach`) need their agreement first, because the user may
+still be working in it, on your step or another agent's. "Shown" is
+web-plane's own state for the whole `-s` profile, not what is on screen: it holds from `show`
+until someone runs `hide`, and it covers every lane on that profile. A launch that fell back to
+a visible system Chrome also reads as shown; `status` then prints `Suppression: UNMANAGED`,
+nobody handed that window to the user, and the fix is `doctor`, then close and relaunch. The CLI enforces part of this, and
+a `hide` that succeeds is not the user's agreement:
+
+- `lane` refuses every command except `snapshot`, `get`, `is`, `console`, `errors`, `title`
+  and `url` with `WINDOW_SHOWN` (exit 4), and so does `attach`. Those seven still run and do
+  not bring your tab forward; `--while-shown` goes right after the lane name and does.
+- `hide` refuses with `USER_ACTIVE` (exit 4) while the browser is the frontmost app and there
+  was keyboard or mouse input in the last two minutes.
+- Nothing refuses `-s close`, `panel accept`/`cancel` or a manual agent-browser connection
+  while shown; do not use them on a shown profile without that agreement either.
+
+On `WINDOW_SHOWN` from a handoff you did not start, while the task still needs the lane, wait in the background with
+`web-plane -s=<profile> wait-hidden` (default 600 s, exit 1 on timeout — then report, do not
+retry), or ask the user. A subagent cannot ask: on `WINDOW_SHOWN` or `USER_ACTIVE` it returns
+to the parent as it would with a handoff request, and the parent asks and runs any override.
 
 If a new blocker appears before the handoff screen, apply the challenge rules above; show
 it only if resolving it requires the user personally.
