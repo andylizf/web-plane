@@ -262,7 +262,7 @@ window, and a `hide` that can only minimize. If windows are showing up, run this
 it names the broken layer and the fix.
 
 ### Challenges — do the ones you can, hand over only the ones you can't
-For an authorized login, attempt the verification presented on the current page, including
+For an authorized login or registration, attempt the verification presented on the current page, including
 text CAPTCHAs, image recognition and selection, and slider or drag puzzles. The operator
 deliberately delegates these interactions; the presence of an anti-bot challenge alone is
 not a reason to hand the login back. Read a fresh screenshot, perform the requested
@@ -271,16 +271,27 @@ An explicit retry request calls for a fresh attempt within the applicable login 
 attempt limits; do not assume the previous challenge or blocker still applies.
 
 Hand over only a step that actually requires the user's device, biometric, personal
-attestation, or information unavailable through authorized tools. Retrieve a login email
-or code yourself when authorized access exists and it matches the login you initiated.
+attestation, or information unavailable through authorized tools. Retrieve an email
+or code yourself when authorized access exists and it matches the login or registration you initiated.
 Keep any applicable higher-priority restriction and actual service lockout in force. If
 blocked, identify the current failed step and its observed error or applicable rule; do not
 invent a prohibition or present an unverified account-loss risk as a fact. Resume after
 the specific blocker clears. Record which verification passed: a successful login without
 an image puzzle is not evidence that an earlier image puzzle was solved.
 
-For new-account registration, continue to hand identity-establishing steps to the user
-(ID number, creating a password, proving phone ownership).
+A sign-up the user asked for, with or without a password, is yours to complete: fill only the
+required fields, and only with facts you have or can look up about the user; a choice between
+several of their identities that nothing settles, such as which email, card or Google account,
+is theirs and goes to them as a question. Their asking for the account covers its final submit
+and the site's terms box, but not a charge that submit starts; a subagent still leaves that
+submit to its parent, as below. Where such a flow, or a reset or invitation the user asked for,
+needs a secret you choose — a password, a PIN, a security answer — choose it yourself (the
+plugin author's default: the user would rather find it saved than be handed the field). Save it
+first where the user's other logins are saved (their password manager) and type it from that
+saved copy; on a reset, save the new password beside the old one and move it into the old entry,
+keeping that entry's other contents, only once a login with it succeeds. Where you cannot
+identify or open that store, write it to a 0600 file in a place that is not committed, synced or
+cleaned up. Your report names the saved entry or the file path either way.
 
 ### Visibility choreography — show only the finished step
 
@@ -366,7 +377,7 @@ user named; otherwise `"opus"`, or this conversation's own model if that is chea
 (the author's cap on what the subagent may cost; if you cannot tell which is cheaper, `"opus"`).
 
 Give it the goal, the profile, and the lane; ask back for conclusions — the answer you went
-for, what changed, the final URL, whether the lane is still open. Never raw snapshots, never
+for, what changed, the final URL, whether the lane is still open, and where any new password was saved. Never raw snapshots, never
 `.playwright-cli/` dumps.
 Pasting those back spends exactly what the subagent was there to save.
 
