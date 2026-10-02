@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { publicTarget, resolveDiscardReplacement, resolveRestoredTarget } from '../../lib/lane-recovery.js';
+import {
+  describeUnresponsiveTargets,
+  publicTarget,
+  resolveDiscardReplacement,
+  resolveRestoredTarget,
+} from '../../lib/lane-recovery.js';
 
 const targets = [
   { id: 'A', title: 'Application', url: 'https://portal.example/form?step=3#address' },
@@ -88,4 +93,26 @@ test('a discarded tab is followed to its placeholder, never back to the old targ
   assert.equal(result.status, 'matched');
   assert.equal(result.target.id, 'NEW');
   assert.equal(resolveDiscardReplacement(saved, [live[0]], 'OLD').status, 'missing');
+});
+
+test('an unresponsive tab is reported with the lane that owns it, and only the owner is told to close it', () => {
+  const probes = [
+    { id: 'mine', url: 'https://a.example/x?token=secret', responsive: false },
+    { id: 'sibling', url: 'https://b.example/y', responsive: false },
+    { id: 'stray', url: 'https://c.example/', responsive: false },
+    { id: 'fine', url: 'https://d.example/', responsive: true },
+  ];
+  const lanes = [
+    { lane: 'me', targetId: 'mine' },
+    { lane: 'other', targetId: 'sibling' },
+    { lane: 'idle', targetId: 'fine' },
+  ];
+  const stuck = describeUnresponsiveTargets(probes, lanes, 'me');
+  assert.deepEqual(stuck.map((target) => [target.id, target.owner]), [
+    ['mine', 'me'], ['sibling', 'other'], ['stray', null],
+  ]);
+  assert.match(stuck[0].line, /this lane's own tab/);
+  assert.match(stuck[1].line, /web-plane lane other close/);
+  assert.match(stuck[2].line, /not a web-plane lane/);
+  assert.ok(stuck.every((target) => !target.line.includes('secret')), 'query strings stay out of the report');
 });
