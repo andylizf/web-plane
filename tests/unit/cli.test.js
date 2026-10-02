@@ -1,7 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { makeTmpDir, removeTmpDir, REPO_ROOT } from '../helpers/tmpdir.js';
 import { runCli } from '../helpers/cli.js';
@@ -173,6 +173,66 @@ test('a driver command that never returns is stopped instead of holding the prof
   assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
   assert.match(r.stderr, /agent-browser eval for lane 'hung-eval' timed out after 500ms/);
   assert.match(r.stderr, /command lock is released/);
+});
+
+test('a timed-out command does not leave the lane\'s next command waiting behind it', () => {
+  // agent-browser runs one command at a time inside its daemon and keeps
+  // running a command after its client is killed. A never-settling eval used
+  // to keep the daemon busy, so the lane's next command hung behind it. This
+  // fake reproduces that: the hung eval leaves a daemon behind, and any
+  // command waits while that daemon lives.
+  const lane = 'busy-daemon';
+  const runtime = boundLaneRuntime(lane);
+  const socketDir = join(home, `sockets-${lane}`);
+  const bin = join(home, `fake-agent-browser-${lane}`);
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(socketDir, { recursive: true, mode: 0o700 });
+  // A link in the driver's own directory: ps reports the path it was started
+  // by, as it does for the packaged daemon.
+  symlinkSync('/bin/sleep', join(bin, 'daemon'));
+  const driver = join(bin, 'agent-browser');
+  writeFileSync(driver, `#!/usr/bin/env node
+const { spawn } = await import('node:child_process');
+const fs = await import('node:fs');
+const path = await import('node:path');
+const args = process.argv.slice(2);
+const session = args[args.indexOf('--session') + 1];
+const pidFile = path.join(process.env.AGENT_BROWSER_SOCKET_DIR, session + '.pid');
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+const daemon = fs.existsSync(pidFile) ? Number(fs.readFileSync(pidFile, 'utf8')) : null;
+if (args.includes('new Promise(() => {})')) {
+  const child = spawn(path.join(path.dirname(process.argv[1]), 'daemon'), ['600'], { detached: true, stdio: 'ignore' });
+  child.unref();
+  fs.writeFileSync(pidFile, String(child.pid));
+  fs.writeFileSync(path.join(process.env.AGENT_BROWSER_SOCKET_DIR, session + '.target'), '{"targetId":"owned-tab","pinned":true}');
+  setInterval(() => {}, 1000);
+} else if (daemon && alive(daemon)) {
+  setInterval(() => {}, 1000);
+} else {
+  console.log('"answered"');
+}
+`);
+  chmodSync(driver, 0o755);
+  const env = {
+    WEB_PLANE_RUNTIME_DIR: runtime,
+    WEB_PLANE_TEST_AGENT_BROWSER_BIN: driver,
+    AGENT_BROWSER_SOCKET_DIR: socketDir,
+    WEB_PLANE_DRIVER_TIMEOUT_MS: '1000',
+  };
+  let daemonPid = null;
+  try {
+    const hung = runCli(['agent-browser', '--session', lane, 'eval', 'new Promise(() => {})'], { home, env });
+    assert.equal(hung.code, 124, hung.all);
+    const next = runCli(['agent-browser', '--session', lane, 'eval', 'location.href'], {
+      home, env: { ...env, WEB_PLANE_DRIVER_TIMEOUT_MS: '5000' },
+    });
+    assert.equal(next.code, 0, next.all);
+    assert.equal(next.stdout.trim(), '"answered"');
+    assert.ok(existsSync(join(socketDir, `${lane}.target`)), 'the tab binding must survive the driver restart');
+  } finally {
+    try { daemonPid = Number(readFileSync(join(socketDir, `${lane}.pid`), 'utf8')); } catch {}
+    if (daemonPid) try { process.kill(daemonPid, 'SIGKILL'); } catch {}
+  }
 });
 
 test('a readiness wait keeps the timeout it asked for', () => {
