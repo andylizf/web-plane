@@ -145,6 +145,50 @@ test('a lane keeps its CDP endpoint when page arguments contain connect', () => 
   assert.deepEqual(JSON.parse(r.stdout), ['--cdp', '54321', '--session', lane, 'fill', 'connect', 'text']);
 });
 
+function boundLaneRuntime(lane) {
+  const runtime = join(home, `runtime-${lane}`);
+  const dir = join(runtime, 'lanes');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${createHash('sha256').update(lane).digest('hex')}.json`), JSON.stringify({
+    version: 2, lane, session: 'profile', port: 54321, targetId: 'owned-tab',
+  }));
+  return runtime;
+}
+
+test('a driver command that never returns is stopped instead of holding the profile', () => {
+  // A page eval whose promise never settles used to block forever while the
+  // caller held the profile-wide command lock, so every other agent on the
+  // profile got LANE_BUSY until someone killed the process by hand.
+  const lane = 'hung-eval';
+  const runtime = boundLaneRuntime(lane);
+  const driver = join(home, 'hanging-driver');
+  writeFileSync(driver, '#!/usr/bin/env node\nsetInterval(() => {}, 1000);\n');
+  chmodSync(driver, 0o755);
+  const started = Date.now();
+  const r = runCli(['agent-browser', '--session', lane, 'eval', 'new Promise(() => {})'], {
+    home,
+    env: { WEB_PLANE_RUNTIME_DIR: runtime, WEB_PLANE_TEST_AGENT_BROWSER_BIN: driver, WEB_PLANE_DRIVER_TIMEOUT_MS: '500' },
+  });
+  assert.equal(r.code, 124, r.all);
+  assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
+  assert.match(r.stderr, /agent-browser eval for lane 'hung-eval' timed out after 500ms/);
+  assert.match(r.stderr, /command lock is released/);
+});
+
+test('a readiness wait keeps the timeout it asked for', () => {
+  const lane = 'slow-wait';
+  const runtime = boundLaneRuntime(lane);
+  const driver = join(home, 'slow-driver');
+  writeFileSync(driver, '#!/usr/bin/env node\nsetTimeout(() => console.log("ready"), 1200);\n');
+  chmodSync(driver, 0o755);
+  const r = runCli(['agent-browser', '--session', lane, 'wait', '--load', 'load', '--timeout', '1000'], {
+    home,
+    env: { WEB_PLANE_RUNTIME_DIR: runtime, WEB_PLANE_TEST_AGENT_BROWSER_BIN: driver, WEB_PLANE_DRIVER_TIMEOUT_MS: '300' },
+  });
+  assert.equal(r.code, 0, r.all);
+  assert.equal(r.stdout.trim(), 'ready');
+});
+
 test('custom commands reject --profile instead of ignoring it or reading it as a URL', () => {
   for (const args of [
     ['--profile', '/some/dir', 'cdp'],
