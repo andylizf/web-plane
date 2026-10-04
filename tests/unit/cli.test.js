@@ -286,6 +286,15 @@ test("status reports no session rather than the user's own Chrome", () => {
   assert.match(r.stdout, /No browser session running\./);
 });
 
+test('show, hide and toggle with no browser fail in one line, not a stack trace', () => {
+  for (const cmd of ['show', 'hide', 'toggle']) {
+    const r = runCli(['-s=definitely-not-running', cmd], { home });
+    assert.equal(r.code, 1, r.all);
+    assert.match(r.stderr, new RegExp(`^web-plane ${cmd}: No Chrome process`));
+    assert.doesNotMatch(r.all, /\n\s+at /, `${cmd} printed a stack trace`);
+  }
+});
+
 test('panel control refuses to signal an unversioned runtime', () => {
   const r = runCli(['-s=not-running', 'panel', 'status'], { home });
   assert.equal(r.code, 1);
