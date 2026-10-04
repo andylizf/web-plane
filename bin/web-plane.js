@@ -198,7 +198,14 @@ if (command === 'install') {
   await attach(parseSessionFlag(rawArgs), rest, lane);
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
-  await windowControl(command, parseSessionFlag(rawArgs), { whileActive: commandArgs.includes('--while-active') });
+  // The usual failure here is ordinary — no browser running for that session —
+  // and an uncaught throw dressed it up as a crash with a full Node stack.
+  try {
+    await windowControl(command, parseSessionFlag(rawArgs), { whileActive: commandArgs.includes('--while-active') });
+  } catch (err) {
+    console.error(`web-plane ${command}: ${err.message}`);
+    process.exit(1);
+  }
 } else if (command === 'wait-hidden') {
   const { waitHidden } = await import('../lib/window.js');
   const seconds = stripSessionFlag(commandArgs)[0];
