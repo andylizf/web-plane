@@ -85,6 +85,13 @@ test('the runtime without the WindowServer alpha hook requires a rebuild', () =>
   assert.match(r.stdout, /fix: web-plane install/);
 });
 
+test('the runtime with parent-only browser-modal detection requires a rebuild', () => {
+  const r = doctorOn('parent-only-ui', { runtimeVersion: '9' });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, new RegExp(`installed protocol 9 != package protocol ${RUNTIME_VERSION}`));
+  assert.match(r.stdout, /fix: web-plane install/);
+});
+
 test('an unversioned legacy runtime is rejected', () => {
   const r = doctorOn('unversioned-runtime', { runtimeVersion: null });
   assert.equal(r.code, 1);

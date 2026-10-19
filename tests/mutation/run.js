@@ -31,6 +31,28 @@ const WORKDIR = join(REPO, 'tmp', 'mutants');
  */
 const MUTATIONS = [
   {
+    name: 'parented-bubble-is-a-modal',
+    describes: 'restores parent-only classification, so a toolbar download bubble gates page input',
+    suite: 'tests/integration/ui-blocker.test.js',
+    expect: 'a toolbar-anchored Chrome bubble is reported without blocking page input',
+    edits: [{
+      file: 'native/panel_control.m',
+      from: 'blocking = modalWindow(parent, modalSelector) == window;',
+      to: '(void)modalWindow; blocking = YES;',
+    }],
+  },
+  {
+    name: 'real-child-modal-is-ignored',
+    describes: 'treats a real Chromium child modal as a harmless browser surface',
+    suite: 'tests/integration/ui-blocker.test.js',
+    expect: 'a keyable Chrome child window is reported as a browser-modal blocker',
+    edits: [{
+      file: 'native/panel_control.m',
+      from: 'blocking = modalWindow(parent, modalSelector) == window;',
+      to: '(void)modalWindow; blocking = NO;',
+    }],
+  },
+  {
     name: 'hidden-native-panel-is-not-intercepted',
     describes:
       'lets a hidden-session Save/Open panel enter its running phase, where public path setters ' +

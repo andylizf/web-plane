@@ -177,6 +177,12 @@ While a managed session is hidden, Save/Open presentation is held so the agent
 can answer without showing UI or taking focus. Running `show` releases a pending
 panel for normal human interaction.
 
+`ui status` separates blocking UI in `blockers` from non-blocking browser UI in
+`surfaces`. Toolbar download bubbles stay hidden and do not gate lane input;
+WebAuthn dialogs still do. Managed profile launches disable automatic
+download-bubble popups through Chrome's `download_bubble.partial_view_enabled`
+preference.
+
 ## vs agent-browser
 
 |  | web-plane | agent-browser |
