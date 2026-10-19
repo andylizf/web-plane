@@ -39,6 +39,12 @@ test('unknown agent-browser commands fail closed while inspection and recovery s
   }
 });
 
+test('non-modal browser surfaces do not offer a tab-navigation abort', () => {
+  const surface = addBlockerPolicy({ kind: 'browser-surface', blocking: false }, 'research');
+  assert.equal(surface.blocking, false);
+  assert.deepEqual(surface.actions, ['wait', 'show']);
+});
+
 test('post-command comparison reports only newly appeared blockers', () => {
   const existing = { id: 'window-1', kind: 'browser-modal' };
   const appeared = { id: 'panel-2', kind: 'native-panel' };

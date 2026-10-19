@@ -46,6 +46,7 @@ test('launch preparation clears crash recovery and agent-hostile prompts atomica
     profile: { exit_type: 'Crashed', custom: 7 },
     autofill: { profile_enabled: true, untouched: 'yes' },
     credentials_enable_service: true,
+    download_bubble: { partial_view_enabled: true, partial_view_impressions: 4 },
     unrelated: { remains: true },
   });
   const original = readFileSync(profile.path, 'utf8');
@@ -64,6 +65,8 @@ test('launch preparation clears crash recovery and agent-hostile prompts atomica
   assert.equal(state.autofill.untouched, 'yes');
   assert.equal(state.credentials_enable_service, false);
   assert.equal(state.credentials_enable_autosignin, false);
+  assert.equal(state.download_bubble.partial_view_enabled, false);
+  assert.equal(state.download_bubble.partial_view_impressions, 4);
   assert.deepEqual(state.unrelated, { remains: true });
   assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
   assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
@@ -96,6 +99,7 @@ test('launch preparation creates safe defaults for a fresh managed profile', () 
   assert.equal(state.session.restore_on_startup, 1);
   assert.equal(state.autofill.profile_enabled, false);
   assert.equal(state.credentials_enable_service, false);
+  assert.equal(state.download_bubble.partial_view_enabled, false);
   assert.equal(localState.performance_tuning.high_efficiency_mode.state, 2);
   assert.equal(localState.performance_tuning.high_efficiency_mode.aggressiveness, 2);
 });

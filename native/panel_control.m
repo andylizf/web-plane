@@ -95,10 +95,11 @@ static NSDictionary *currentPanelState(void);
 
 // Chromium's browser-owned dialogs are not AppKit panels. WebAuthn, for
 // example, is a keyable NativeWidgetMacNSWindow attached to the browser frame.
-// Recover, download-history and permission bubbles use the same private window
-// class, so the class name alone is not a modal signal; the parent relationship
-// is the stable distinction. Keep titles as evidence only, never as policy, so
-// this works across locales and for future Chromium child-modal surfaces.
+// Toolbar bubbles can have the same class and parent. Chromium exposes the
+// topmost visible child whose Views modal_type is not kNone through this
+// selector. Query that signal instead of guessing from titles or geometry.
+// Older/unknown Chromium implementations retain the parent-based fail-closed
+// rule if the selector is absent.
 static const void *kUIBlockerIdKey = &kUIBlockerIdKey;
 
 static NSString *blockerIdForWindow(NSWindow *window) {
@@ -111,26 +112,34 @@ static NSString *blockerIdForWindow(NSWindow *window) {
     return blockerId;
 }
 
-static NSArray *browserModalBlockers(void) {
-    NSMutableArray *blockers = [NSMutableArray array];
+static NSArray *browserUISurfaces(void) {
+    NSMutableArray *surfaces = [NSMutableArray array];
     Class childClass = NSClassFromString(@"NativeWidgetMacNSWindow");
     Class browserClass = NSClassFromString(@"BrowserNativeWidgetWindow");
-    if (!childClass || !browserClass) return blockers;
+    if (!childClass || !browserClass) return surfaces;
     for (NSWindow *window in [NSApp windows]) {
         if (![window isVisible] || ![window canBecomeKeyWindow]) continue;
         if (![window isKindOfClass:childClass]) continue;
+        if ([window isKindOfClass:browserClass]) continue;
         NSWindow *parent = [window parentWindow];
-        if (!parent || ![parent isKindOfClass:browserClass]) continue;
-        [blockers addObject:@{
+        if (parent && ![parent isKindOfClass:browserClass]) continue;
+        BOOL blocking = parent != nil;
+        SEL modalSelector = NSSelectorFromString(@"topmostVisibleChildModalWindow");
+        if (parent && [parent respondsToSelector:modalSelector]) {
+            NSWindow *(*modalWindow)(id, SEL) =
+                (NSWindow *(*)(id, SEL))[parent methodForSelector:modalSelector];
+            blocking = modalWindow(parent, modalSelector) == window;
+        }
+        [surfaces addObject:@{
             @"id": blockerIdForWindow(window),
-            @"kind": @"browser-modal",
-            @"scope": @"tab",
-            @"blocking": @YES,
+            @"kind": blocking ? @"browser-modal" : @"browser-surface",
+            @"scope": blocking ? @"tab" : @"window",
+            @"blocking": @(blocking),
             @"class": NSStringFromClass([window class]),
             @"title": [window title] ?: @"",
         }];
     }
-    return blockers;
+    return surfaces;
 }
 
 static NSDictionary *panelBlocker(NSDictionary *panel) {
@@ -145,12 +154,16 @@ static NSDictionary *panelBlocker(NSDictionary *panel) {
     };
 }
 
-static NSArray *currentUIBlockers(void) {
+static NSDictionary *currentUIState(void) {
     NSMutableArray *blockers = [NSMutableArray array];
+    NSMutableArray *surfaces = [NSMutableArray array];
     NSDictionary *panel = currentPanelState();
     if (panel) [blockers addObject:panelBlocker(panel)];
 
-    [blockers addObjectsFromArray:browserModalBlockers()];
+    for (NSDictionary *surface in browserUISurfaces()) {
+        if ([surface[@"blocking"] boolValue]) [blockers addObject:surface];
+        else [surfaces addObject:surface];
+    }
 
     NSPanel *unsupported = panel ? nil : unsupportedNativePanel();
     if (unsupported) {
@@ -164,7 +177,7 @@ static NSArray *currentUIBlockers(void) {
             @"title": [unsupported title] ?: @"",
         }];
     }
-    return blockers;
+    return @{ @"blockers": blockers, @"surfaces": surfaces };
 }
 
 static NSString *standardPath(NSString *path) {
@@ -472,9 +485,7 @@ static void handleRequest(
 
     NSString *action = request[@"action"];
     if ([action isEqualToString:@"ui-status"]) {
-        writeResponse(responsePath, panelSuccess(requestId, @{
-            @"blockers": currentUIBlockers(),
-        }));
+        writeResponse(responsePath, panelSuccess(requestId, currentUIState()));
         return;
     }
     if ([action isEqualToString:@"status"]) {

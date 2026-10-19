@@ -97,6 +97,53 @@ test('an unparented Chrome popover is not treated as blocking page input', async
     );
     assert.equal(response.ok, true, JSON.stringify(response));
     assert.deepEqual(response.blockers, []);
+    assert.equal(response.surfaces.length, 1);
+    assert.equal(response.surfaces[0].blocking, false);
+  } finally {
+    running.proc.kill('SIGTERM');
+  }
+});
+
+test('a toolbar-anchored Chrome bubble is reported without blocking page input', async () => {
+  const running = await launch('anchored-bubble');
+  try {
+    const response = await sendPanelRequest(running.chrome, { action: 'ui-status' }, { runDir });
+    assert.equal(response.ok, true, JSON.stringify(response));
+    assert.deepEqual(response.blockers, []);
+    assert.equal(response.surfaces.length, 1);
+    assert.equal(response.surfaces[0].kind, 'browser-surface');
+    assert.equal(response.surfaces[0].scope, 'window');
+    assert.equal(response.surfaces[0].blocking, false);
+    assert.equal(response.surfaces[0].title, 'Arbitrary browser-owned UI');
+  } finally {
+    running.proc.kill('SIGTERM');
+  }
+});
+
+test('a modal remains blocking beside a non-modal child regardless of their titles', async () => {
+  const running = await launch('mixed');
+  try {
+    const response = await sendPanelRequest(running.chrome, { action: 'ui-status' }, { runDir });
+    assert.equal(response.ok, true, JSON.stringify(response));
+    assert.equal(response.blockers.length, 1);
+    assert.equal(response.blockers[0].blocking, true);
+    assert.equal(response.blockers[0].title, 'Recent Download History');
+    assert.equal(response.surfaces.length, 1);
+    assert.equal(response.surfaces[0].blocking, false);
+    assert.equal(response.surfaces[0].title, 'Arbitrary browser-owned UI');
+  } finally {
+    running.proc.kill('SIGTERM');
+  }
+});
+
+test('an unknown Chrome implementation retains parent-based fail-closed detection', async () => {
+  const running = await launch('legacy-modal');
+  try {
+    const response = await sendPanelRequest(running.chrome, { action: 'ui-status' }, { runDir });
+    assert.equal(response.ok, true, JSON.stringify(response));
+    assert.equal(response.blockers.length, 1);
+    assert.equal(response.blockers[0].blocking, true);
+    assert.deepEqual(response.surfaces, []);
   } finally {
     running.proc.kill('SIGTERM');
   }
