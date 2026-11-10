@@ -14,7 +14,7 @@ const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8
 const rawArgs = process.argv.slice(2);
 
 // Our custom commands (not proxied to playwright-cli)
-const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'wait-hidden', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'panel', 'ui', 'agent-browser']);
+const CUSTOM_COMMANDS = new Set(['install', 'doctor', 'show', 'hide', 'toggle', 'wait-hidden', 'status', 'close', 'cdp', 'attach', 'lane', 'profiles', 'proxy', 'panel', 'ui', 'agent-browser']);
 
 // Commands playwright-cli answers about *itself*. Proxying them succeeds and
 // prints something authoritative-looking that has nothing to do with web-plane:
@@ -96,6 +96,15 @@ Profiles (login identities):
                           a verdict — read a missing host as "not detected", and
                           default to the one identity profile the user has.
 
+  proxy                   Show the profile's network exit (direct or a proxy)
+  proxy set <url> [--bypass <list>]
+                          Launch this profile's browser through <url>
+                          (socks5://host:port, socks4, http, https) from now on;
+                          socks5 resolves names through the proxy. No
+                          credentials: use a local forwarder (ssh -D). Refused
+                          while the profile's browser runs
+  proxy clear             Launch this profile's browser directly again
+
 Window management:
   show                    Make browser window visible
   hide                    Make window invisible (screenshots still work).
@@ -131,13 +140,17 @@ Integration (drive with agent-browser):
                           --timeout <ms> (default 15000) | --no-wait
                           A readiness timeout keeps the lane available for
                           inspection, retry, or lane <lane> close.
+                          --proxy <url> [--proxy-bypass <list>] stores <url>
+                          as the profile's exit (as proxy set) and refuses a
+                          browser already running through another exit.
   lane <lane> <args...>   Run an agent-browser command against that lane's tab,
                           using its persistent pinned target and web-plane's UI
                           gate. Use this instead of calling agent-browser
                           directly so blocking native UI cannot go unnoticed.
                           Lifecycle: lane <lane> close; abandoned lanes have a
                           24-hour hard idle timeout. See lane --help.
-  cdp [url]               Start/reuse a hidden session and print its CDP port
+  cdp [url] [--proxy <url>]
+                          Start/reuse a hidden session and print its CDP port
                           plus a ready pinned agent-browser connection line
 
 Flags:
@@ -178,6 +191,16 @@ if (
   process.exit(2);
 }
 
+async function proxyFlagsOrExit(args) {
+  const { takeProxyFlags } = await import('../lib/proxy.js');
+  try {
+    return takeProxyFlags(args);
+  } catch (error) {
+    console.error(`web-plane ${command}: ${error.message}`);
+    process.exit(2);
+  }
+}
+
 // Dispatch
 if (command === 'install') {
   const { install } = await import('../lib/install.js');
@@ -195,7 +218,8 @@ if (command === 'install') {
 } else if (command === 'attach') {
   const { attach } = await import('../lib/cdp.js');
   const { lane, rest } = parseLaneFlag(commandArgs);
-  await attach(parseSessionFlag(rawArgs), rest, lane);
+  const { proxy, rest: attachArgs } = await proxyFlagsOrExit(rest);
+  await attach(parseSessionFlag(rawArgs), attachArgs, lane, { proxy });
 } else if (command === 'show' || command === 'hide' || command === 'toggle') {
   const { windowControl } = await import('../lib/window.js');
   // The usual failure here is ordinary — no browser running for that session —
@@ -219,6 +243,8 @@ if (command === 'install') {
     console.log(`CDP port:      ${s.port}`);
     console.log(`Window:        ${s.windowState}`);
     console.log(`Frontmost app: ${s.frontmost === null ? 'unknown' : s.frontmost ? 'yes' : 'no'}`);
+    const { describeProxy } = await import('../lib/proxy.js');
+    console.log(`Exit:          ${describeProxy(s.proxy)}`);
     if (!s.managed) {
       console.log(
         `Suppression:   UNMANAGED — this Chrome was not launched by web-plane, so\n` +
@@ -235,7 +261,26 @@ if (command === 'install') {
   process.exit(await closeSession(parseSessionFlag(rawArgs)));
 } else if (command === 'cdp') {
   const { cdp } = await import('../lib/cdp.js');
-  await cdp(parseSessionFlag(rawArgs), commandArgs[0] ?? null);
+  const { proxy, rest } = await proxyFlagsOrExit(stripSessionFlag(commandArgs));
+  await cdp(parseSessionFlag(rawArgs), rest[0] ?? null, { proxy });
+} else if (command === 'proxy') {
+  const { profileProxyCommand } = await import('../lib/profiles.js');
+  const { findChrome } = await import('../lib/procs.js');
+  const { acquireProfileCommandLock } = await import('../lib/profile-command-lock.js');
+  const explicit = parseSessionFlag(rawArgs);
+  const session = explicit || 'default';
+  const args = stripSessionFlag(commandArgs);
+  // Changing the exit takes the profile lock so no launch reads it halfway.
+  const releaseLock = args.length ? await acquireProfileCommandLock(session) : null;
+  let running = null;
+  try { running = findChrome(session); } catch {}
+  let status;
+  try {
+    status = profileProxyCommand(session, explicit, args, running);
+  } finally {
+    releaseLock?.();
+  }
+  process.exit(status);
 } else if (command === 'profiles') {
   const { profiles } = await import('../lib/profiles.js');
   process.exit(profiles());

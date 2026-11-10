@@ -371,6 +371,36 @@ across page navigation and lane recovery while the monitor is connected.
 Other lanes retain normal WebAuthn behavior. Reattach without `--no-webauthn`
 to restore normal behavior for this lane.
 
+A profile can leave the machine through a proxy, for sites that only answer
+from one country's IP. The proxy is stored with the profile and applied to every
+launch of it, including the relaunch that lane recovery does by itself:
+
+```bash
+ssh -N -D 127.0.0.1:1088 <host> &                                 # a local SOCKS5 exit
+web-plane -s=cn attach --as task1 https://myip.ipip.net --proxy socks5://127.0.0.1:1088
+web-plane -s=cn proxy set socks5://127.0.0.1:1088 --bypass '*.example.com'
+web-plane -s=cn proxy                                             # show; `proxy clear` removes it
+```
+
+`--proxy` on `attach` or `cdp` stores the exit the same way `proxy set` does.
+web-plane passes it to that profile's Chrome as `--proxy-server` (and
+`--proxy-bypass-list`), so `ps` shows which exit a running browser uses, and
+`profiles`, `status` and `doctor` print it. The exit is part of the profile's
+identity: a browser already running through a different exit, or through none,
+is refused with the `-s=<name> close` that restarts it, and
+`proxy set`/`clear` are refused while the browser runs. Other profiles keep
+launching from the shared config, unchanged.
+
+Chrome resolves every hostname on the proxy's side for `socks5://`, which is
+what curl calls `socks5h`; `socks5h://` is accepted and launched as `socks5://`.
+`socks4://` resolves names locally. Credentials in the URL are refused, and
+never printed: Chrome cannot authenticate to a SOCKS5 proxy at all, and
+answering an HTTP proxy's 407 would need the request interception that stalls
+tabs (see `driverEnvironment`). Put an authenticated upstream behind a local
+forwarder such as `ssh -D`. Loopback addresses bypass the proxy, as in any
+Chrome. WebRTC is not covered by `--proxy-server`: a page can still learn the
+machine's local and direct addresses through it.
+
 A managed Workspace sign-in can make Chrome create another inner profile inside
 one `-s` user-data directory. Every managed launch explicitly selects `Default`;
 `web-plane profiles` marks the remaining on-disk split as `SPLIT`, and `doctor`

@@ -192,6 +192,15 @@ anything: validation shows as styling that no text read exposes, so never report
 the action as blocked, or hand it to the user, without saying what the
 screenshot showed.
 
+A profile can exit through a proxy (a site that answers only from one
+country's IP): `web-plane -s=cn attach --as task1 <url> --proxy socks5://127.0.0.1:1088`
+stores it with the profile, and every later launch of that profile uses it;
+`web-plane -s=cn proxy` shows it, `proxy clear` removes it. A browser running
+through a different exit is refused with the `close` that restarts it; closing
+it closes every lane on that profile, so do that only for a profile your task
+owns. `socks5://` resolves names on the proxy's side. Credentials are refused;
+use a local forwarder such as `ssh -N -D 127.0.0.1:<port> <host>`.
+
 `web-plane profiles` marks a user-data directory as `SPLIT` if Chrome created
 multiple inner profiles such as `Default` and `Profile 1`. When more than one
 inner profile has live pages, `show`, `cdp`, and `attach` refuse rather than
