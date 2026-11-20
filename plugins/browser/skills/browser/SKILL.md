@@ -279,8 +279,14 @@ invent a prohibition or present an unverified account-loss risk as a fact. Resum
 the specific blocker clears. Record which verification passed: a successful login without
 an image puzzle is not evidence that an earlier image puzzle was solved.
 
+Accept every offer, on the site's own page, to remember the session or the device: a "Remember
+me", "Trust this browser", "Don't ask again on this device" or "Stay signed in" box or button, on
+every site and every profile. The profile exists to keep its logins, so an offer left unaccepted
+costs the user another phone prompt or code on the next login. Your report of the login names each
+such offer you accepted, as the snapshot showed it, or says there was none.
+
 A sign-up the user asked for, with or without a password, is yours to complete: fill only the
-required fields, and only with facts you have or can look up about the user; a choice between
+required fields, plus any offer to remember the session or device, and only with facts you have or can look up about the user; a choice between
 several of their identities that nothing settles, such as which email, card or Google account,
 is theirs and goes to them as a question. Their asking for the account covers its final submit
 and the site's terms box, but not a charge that submit starts; a subagent still leaves that
