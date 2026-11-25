@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -130,4 +130,31 @@ test('an unknown target scheme is refused before anything is touched', () => {
   assert.throws(() => migrateProfileEncryption('unknown', 'v12'), /unknown scheme 'v12'/);
   assert.deepEqual(column(db, `select hex(encrypted_value) as v from cookies`)[0], blob);
   assert.equal(existsSync(join(runtime, 'backups', 'os-crypt', 'unknown')), false);
+});
+
+test('a database Chrome was killed in the middle of writing is recovered, not refused', async () => {
+  const blob = encryptValue('v10', cookiePlain('crash.test', 'kept'));
+  const { db } = makeProfile('crashed', [{ host: 'crash.test', name: 'c', blob }]);
+  // Leave a hot rollback journal the way a SIGKILLed Chrome does: a writer
+  // that dies after spilling part of a transaction into the database file.
+  // A read-only open cannot roll that back ("attempt to write a readonly
+  // database"); the migration must recover it instead of refusing the launch.
+  const writer = spawn('sqlite3', [db], { stdio: ['pipe', 'ignore', 'ignore'] });
+  writer.stdin.write('PRAGMA cache_spill=ON; PRAGMA cache_size=1; BEGIN; ' +
+    `UPDATE cookies SET value = 'half-written'; ` +
+    `INSERT INTO cookies SELECT creation_utc+1,host_key,top_frame_site_key,name||'2',randomblob(3000000),encrypted_value,path,expires_utc,is_secure,is_httponly,last_access_utc,has_expires,is_persistent,priority,samesite,source_scheme,source_port,last_update_utc,source_type,has_cross_site_ancestor FROM cookies;\n`);
+  const spilled = () => existsSync(`${db}-journal`) && statSync(db).size > 1_000_000;
+  const deadline = Date.now() + 10_000;
+  while (!spilled() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+  writer.kill('SIGKILL');
+  await new Promise((r) => writer.once('exit', r));
+  assert.ok(spilled(), 'the killed writer left a spilled transaction and its journal behind');
+
+  const report = migrateProfileEncryption('crashed', 'v11');
+  assert.equal(report.migrated, 1);
+  const rows = JSON.parse(execFileSync('sqlite3', ['-json', db,
+    'select value, hex(encrypted_value) as v from cookies'], { encoding: 'utf8' }));
+  assert.equal(rows.length, 1, 'the half-written transaction was rolled back');
+  assert.equal(rows[0].value, '');
+  assert.deepEqual(decryptValue('v11', Buffer.from(rows[0].v, 'hex')), cookiePlain('crash.test', 'kept'));
 });
