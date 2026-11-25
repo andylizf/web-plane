@@ -1,0 +1,19 @@
+--- node_modules/playwright-core/lib/server/utils/processLauncher.js
++++ node_modules/playwright-core/lib/server/utils/processLauncher.js
+@@ -172,8 +172,14 @@
+   let gracefullyClosing = false;
+   async function gracefullyClose() {
+     if (gracefullyClosing) {
+-      options.log(`[pid=${spawnedProcess.pid}] <forcefully close>`);
+-      killProcess();
++      // WEB_PLANE_SINGLE_GRACEFUL_CLOSE: a second caller joins the close already
++      // under way instead of SIGKILLing it. playwright-cli's daemon makes that
++      // second call on every close: Chrome's shutdown fires the context "close"
++      // event, and the daemon's exit then runs gracefullyCloseAll(). The kill
++      // landed mid-shutdown, before Chrome wrote its pending cookie batch.
++      // Hangs stay bounded by the callers' own timers (closeOrKill's timeout,
++      // gracefullyProcessExitDoNotHang's 30 s).
++      options.log(`[pid=${spawnedProcess.pid}] <graceful close already in progress>`);
+       await waitForCleanup;
+       return;
+     }
